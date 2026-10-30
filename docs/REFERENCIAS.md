@@ -1,7 +1,8 @@
 # Referências bibliográficas
 
-Estado verificado em 30/10/2026. **Nenhuma citação com página foi atribuída ainda.** Regra do projeto:
-só citar capítulo/seção depois de abrir o trecho no PDF; nada é copiado (texto, exercícios, figuras).
+Estado verificado em 30/10/2026. Só há citações conferidas para os trechos listados abaixo (Boaventura,
+§2.1, p. 19–20). Regra do projeto: só citar capítulo/seção depois de abrir o trecho no PDF; nada é
+copiado (texto, exercícios, figuras).
 Todo o material didático do app é original. Os PDFs ficam apenas na máquina local (`/*.pdf` no `.gitignore`).
 
 ## Boaventura Netto & Jurkiewicz — *Grafos: Introdução e Prática* (Blucher, 2009)
@@ -23,7 +24,18 @@ Todo o material didático do app é original. Os PDFs ficam apenas na máquina l
 | 9 | Grafos planares | 9.1 definições · 9.2 teorema de Kuratowski · 9.4 problema das 4 cores |
 
 - BFS e DFS **não aparecem como títulos de seção** no sumário; não atribuir a um capítulo sem localizar o trecho.
-- Offset entre numeração impressa e página do PDF ainda não calibrado (a calibrar na primeira citação).
+- **Offset calibrado:** página do PDF = página impressa + 10 (conferido: impressa 20 ↔ PDF 30, 23 ↔ 33, 24 ↔ 34).
+- **Trechos conferidos** (leitura visual das imagens; sem OCR; resumo em palavras próprias):
+  - Cap. 2, §2.1, **p. 19** — matriz de adjacência: uma ligação sem valor pode ser marcada com 1 (ou "x") e o
+    exemplo da matriz sem valores escreve 0 nas posições sem ligação; na matriz **valorada** a casa recebe o valor
+    da ligação e as posições sem ligação ficam em branco (o que separa ausência de peso zero).
+  - Cap. 2, §2.1, **p. 20** — o livro considera só grafos sem laços; um grafo não orientado equivale ao orientado
+    em que todo arco (i,j) tem o simétrico (j,i) (base da convenção sucessores = predecessores = vizinhos).
+  - Cap. 2, §2.1, **p. 20** — matriz de incidência (letra **B**), vértice × ligação: no grafo orientado, o vértice
+    de saída do arco recebe **1** e o de entrada **−1**; no não orientado, as duas posições recebem 1. A ordem
+    das colunas não é obrigatória (o livro usa a ordem lexicográfica; o GrafoLab usa a ordem de inserção).
+  - O livro também descreve a incidência para p-grafos (colunas repetidas para ligações paralelas); o GrafoLab
+    só modela grafos simples.
 
 ## Cormen, Leiserson, Rivest, Stein — *Algoritmos: Teoria e Prática* (2ª ed., trad. Campus/Elsevier)
 

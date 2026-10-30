@@ -55,19 +55,19 @@ describe('addVertex', () => {
   });
 
   it('devolve o vértice criado junto do novo grafo', () => {
-    const { graph, vertex } = addVertex(deepFreeze(createGraph({ id: 'g' })), 'Origem');
+    const { graph, vertex } = must(addVertex(deepFreeze(createGraph({ id: 'g' })), 'Origem'));
 
     expect(vertex).toEqual({ id: 'v1', label: 'Origem' });
     expect(getVertex(graph, 'v1')).toBe(vertex);
   });
 
-  it('aceita rótulos vazios e repetidos: a identidade é o id', () => {
+  it('aceita rótulos repetidos: a identidade é o id', () => {
     let graph = deepFreeze(createGraph({ id: 'g' }));
-    graph = deepFreeze(addVertex(graph, '').graph);
-    graph = deepFreeze(addVertex(graph, '').graph);
+    graph = deepFreeze(must(addVertex(graph, 'X')).graph);
+    graph = deepFreeze(must(addVertex(graph, 'X')).graph);
 
     expect(graph.vertices.map((v) => v.id)).toEqual(['v1', 'v2']);
-    expect(graph.vertices.map((v) => v.label)).toEqual(['', '']);
+    expect(graph.vertices.map((v) => v.label)).toEqual(['X', 'X']);
   });
 
   it('continua o alfabeto depois do Z (Z, AA, AB…)', () => {
@@ -85,9 +85,206 @@ describe('addVertex', () => {
   it('não reaproveita ids nem rótulos padrão depois de uma remoção', () => {
     let graph = withVertices(3);
     graph = deepFreeze(must(removeVertex(graph, 'v3')));
-    const { vertex } = addVertex(graph);
+    const { vertex } = must(addVertex(graph));
 
     expect(vertex).toEqual({ id: 'v4', label: 'D' });
+  });
+
+  describe('rótulo informado', () => {
+    const vazio = deepFreeze(createGraph({ id: 'g' }));
+    const rotuloDe = (label: unknown) => must(addVertex(vazio, label as string)).vertex.label;
+
+    it.each([
+      ['espaços comuns', '  Origem  '],
+      ['tab e quebras de linha', '\t\nOrigem\r\n'],
+      ['espaço não separável (U+00A0)', ' Origem '],
+    ])('aplica trim() antes de guardar: %s', (_nome, entrada) => {
+      expect(rotuloDe(entrada)).toBe('Origem');
+    });
+
+    it('mantém os espaços do meio', () => {
+      expect(rotuloDe(' Nó  inicial ')).toBe('Nó  inicial');
+    });
+
+    it.each(['α', 'グラフ', '𝒢', 'ação', 'Ünïcödé', '👨‍👩‍👧', 'Nó 1 → Nó 2'])(
+      'aceita e guarda "%s" sem alterar',
+      (label) => {
+        expect(rotuloDe(label)).toBe(label);
+      },
+    );
+
+    it('não normaliza a forma Unicode (guarda o que o aluno digitou)', () => {
+      expect(rotuloDe('é')).toBe('é');
+    });
+
+    it('permite repetir o rótulo informado e também o rótulo padrão de outro vértice', () => {
+      let graph = vazio;
+      graph = must(addVertex(graph, 'A')).graph; // igual ao padrão do próprio v1
+      graph = must(addVertex(graph, 'A')).graph;
+      graph = must(addVertex(graph)).graph; // padrão do v3 seria "C"
+
+      expect(graph.vertices.map((v) => v.label)).toEqual(['A', 'A', 'C']);
+      expect(new Set(graph.vertices.map((v) => v.id)).size).toBe(3);
+    });
+
+    it('um rótulo informado não muda a sequência dos rótulos padrão', () => {
+      let graph = must(addVertex(vazio, 'Origem')).graph;
+      graph = must(addVertex(graph)).graph;
+
+      expect(graph.vertices.map((v) => v.label)).toEqual(['Origem', 'B']);
+    });
+  });
+
+  describe('rótulo inválido', () => {
+    const vazio = deepFreeze(createGraph({ id: 'g' }));
+
+    it.each([
+      ['vazio', ''],
+      ['só espaços', '   '],
+      ['só tab e quebra de linha', '\t\n'],
+      ['só espaço não separável', '  '],
+    ])('rejeita rótulo %s (EMPTY)', (_nome, label) => {
+      expect(errorOf(addVertex(vazio, label))).toEqual({
+        code: 'INVALID_VERTEX_LABEL',
+        label,
+        reason: 'EMPTY',
+      });
+    });
+
+    const naoStrings: [string, unknown][] = [
+      ['número', 42],
+      ['null (não equivale a "omitido")', null],
+      ['objeto', {}],
+      ['lista', ['A']],
+      ['booleano', false],
+    ];
+    it.each(naoStrings)('rejeita valor que não é string: %s (NOT_A_STRING)', (_nome, valor) => {
+      expect(errorOf(addVertex(vazio, valor as string))).toEqual({
+        code: 'INVALID_VERTEX_LABEL',
+        label: valor,
+        reason: 'NOT_A_STRING',
+      });
+    });
+
+    it('só undefined significa "omitido": cria com o rótulo padrão', () => {
+      expect(must(addVertex(vazio, undefined)).vertex).toEqual({ id: 'v1', label: 'A' });
+    });
+
+    it('o erro devolve o texto original, sem trim', () => {
+      const original = ` ${'a'.repeat(65)} `;
+
+      expect(errorOf(addVertex(vazio, original))).toEqual({
+        code: 'INVALID_VERTEX_LABEL',
+        label: original,
+        reason: 'TOO_LONG',
+      });
+    });
+  });
+
+  describe('limite de tamanho', () => {
+    const vazio = deepFreeze(createGraph({ id: 'g' }));
+
+    it('aceita exatamente 64 caracteres e rejeita 65', () => {
+      const limite = 'a'.repeat(64);
+
+      expect(must(addVertex(vazio, limite)).vertex.label).toBe(limite);
+      expect(errorOf(addVertex(vazio, `${limite}a`))).toMatchObject({
+        code: 'INVALID_VERTEX_LABEL',
+        reason: 'TOO_LONG',
+      });
+    });
+
+    it('conta pontos de código, não unidades UTF-16 (um emoji vale 1)', () => {
+      expect(must(addVertex(vazio, '😀'.repeat(64))).vertex.label).toBe('😀'.repeat(64));
+      expect(errorOf(addVertex(vazio, '😀'.repeat(65))).code).toBe('INVALID_VERTEX_LABEL');
+    });
+
+    it('conta cada ponto de código: "e" + acento combinante valem 2', () => {
+      expect(must(addVertex(vazio, 'é'.repeat(32))).vertex.label).toHaveLength(64);
+      expect(errorOf(addVertex(vazio, 'é'.repeat(33))).code).toBe('INVALID_VERTEX_LABEL');
+    });
+
+    it('o limite vale depois do trim', () => {
+      const limite = 'a'.repeat(64);
+
+      expect(must(addVertex(vazio, `  ${limite}  `)).vertex.label).toBe(limite);
+      expect(errorOf(addVertex(vazio, `${limite}a  `)).code).toBe('INVALID_VERTEX_LABEL');
+    });
+  });
+
+  describe('erro não altera o grafo nem consome identificadores', () => {
+    it('deixa o grafo de entrada idêntico e o contador no mesmo valor', () => {
+      const base = withVertices(2);
+      const antes = JSON.stringify(base);
+
+      addVertex(base, '');
+      addVertex(base, 'a'.repeat(65));
+      addVertex(base, 7 as unknown as string);
+
+      expect(JSON.stringify(base)).toBe(antes);
+      expect(base.nextVertexSeq).toBe(3);
+    });
+
+    it('depois de erros, o próximo vértice válido recebe o id e o rótulo padrão esperados', () => {
+      let graph = must(addVertex(deepFreeze(createGraph({ id: 'g' })))).graph; // v1 "A"
+      for (const invalido of ['', '   ', null, 5, 'x'.repeat(65)]) {
+        expect(addVertex(graph, invalido as string).ok).toBe(false);
+      }
+      const { graph: depois, vertex } = must(addVertex(graph));
+      graph = depois;
+
+      expect(vertex).toEqual({ id: 'v2', label: 'B' }); // nenhum id ou letra foi gasto pelos erros
+      expect(graph.nextVertexSeq).toBe(3);
+      expect(order(graph)).toBe(2);
+    });
+
+    it('operações intercaladas válidas e inválidas preservam ids, ordem e rótulos', () => {
+      let graph = deepFreeze(createGraph({ id: 'g' }));
+      const entradas: (string | undefined)[] = ['Origem', '', undefined, '  ', ' Destino ', undefined];
+      for (const entrada of entradas) {
+        const resultado = addVertex(graph, entrada);
+        if (resultado.ok) graph = deepFreeze(resultado.value.graph);
+      }
+
+      expect(graph.vertices).toEqual([
+        { id: 'v1', label: 'Origem' },
+        { id: 'v2', label: 'B' },
+        { id: 'v3', label: 'Destino' },
+        { id: 'v4', label: 'D' },
+      ]);
+    });
+  });
+
+  describe('mesmas regras do setVertexLabel', () => {
+    const entradas: unknown[] = [
+      '',
+      '   ',
+      ' A ',
+      'Origem',
+      'a'.repeat(64),
+      'a'.repeat(65),
+      '😀'.repeat(64),
+      '😀'.repeat(65),
+      ' X ',
+      42,
+      null,
+      {},
+    ];
+
+    it.each(entradas.map((entrada) => [JSON.stringify(entrada) ?? String(entrada), entrada]))(
+      'aceita ou recusa %s do mesmo jeito, com o mesmo resultado',
+      (_nome, entrada) => {
+        const porCriacao = addVertex(withVertices(0), entrada as string);
+        const porEdicao = setVertexLabel(withVertices(1), 'v1', entrada as string);
+
+        if (porCriacao.ok && porEdicao.ok) {
+          expect(porCriacao.value.vertex.label).toBe(porEdicao.value.vertices[0]!.label);
+        } else {
+          expect(porCriacao.ok).toBe(porEdicao.ok);
+          expect(errorOf(porCriacao)).toEqual(errorOf(porEdicao));
+        }
+      },
+    );
   });
 });
 
@@ -334,7 +531,8 @@ describe('imutabilidade', () => {
     const comAresta = must(addEdge(base, { source: 'v1', target: 'v2', weight: 4 }));
     must(removeEdge(comAresta.graph, 'e1'));
     must(removeVertex(comAresta.graph, 'v1'));
-    addVertex(base, 'novo');
+    must(addVertex(base, 'novo'));
+    addVertex(base, ''); // erro: também não pode mutar
     addEdge(base, { source: 'v1', target: 'v1' }); // erro: também não pode mutar
 
     expect(JSON.stringify(base)).toBe(antes);
@@ -342,7 +540,7 @@ describe('imutabilidade', () => {
 
   it('devolve novos objetos e compartilha os itens que não mudaram', () => {
     const base = withVertices(2);
-    const { graph } = addVertex(base);
+    const { graph } = must(addVertex(base));
 
     expect(graph).not.toBe(base);
     expect(graph.vertices[0]).toBe(base.vertices[0]);
@@ -542,7 +740,7 @@ describe('setVertexLabel', () => {
     it('não mexe nos contadores: o próximo vértice segue a sequência e o rótulo padrão', () => {
       const renomeado = must(setVertexLabel(withVertices(1), 'v1', 'X'));
 
-      expect(addVertex(renomeado).vertex).toEqual({ id: 'v2', label: 'B' });
+      expect(must(addVertex(renomeado)).vertex).toEqual({ id: 'v2', label: 'B' });
     });
   });
 

@@ -23,7 +23,7 @@ export function errorOf(result: Result<unknown>) {
 /** Grafo congelado com os vértices v1..vN (rótulos A, B, C…). */
 export function withVertices(count: number, directed = false): Graph {
   let graph = deepFreeze(createGraph({ id: 'g', directed }));
-  for (let i = 0; i < count; i++) graph = deepFreeze(addVertex(graph).graph);
+  for (let i = 0; i < count; i++) graph = deepFreeze(must(addVertex(graph)).graph);
   return graph;
 }
 

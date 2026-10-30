@@ -90,11 +90,13 @@ Pastas são criadas só quando necessárias.
    - **IDs estáveis e determinísticos**: o `Graph` guarda contadores (`nextVertexSeq`/`nextEdgeSeq`) e emite
      `v1, v2…` / `e1, e2…`. Um ID removido nunca é reaproveitado, então seleção, layout e histórico não apontam
      para o vértice errado. O `id` do grafo vem de quem persiste (o domínio não gera aleatoriedade).
-   - **Rótulos**: o padrão é A, B, …, Z, AA, AB… a partir do contador. Pelo `setVertexLabel`: `trim()` e
-     depois 1 a 64 pontos de código Unicode (`MAX_VERTEX_LABEL_LENGTH`; um emoji vale 1 e "e" + acento
-     combinante valem 2), sem normalização Unicode e **sem exigir unicidade**. Erro `INVALID_VERTEX_LABEL`
-     com `reason` (`NOT_A_STRING`, `EMPTY`, `TOO_LONG`). Limitação: `trim()` não remove caracteres invisíveis
-     como U+200B. O `addVertex` ainda aceita qualquer texto (alinhamento pendente, ver ROADMAP).
+   - **Rótulos**: sem rótulo informado, `addVertex` usa A, B, …, Z, AA, AB… a partir do contador. Todo rótulo
+     informado — em `addVertex` e em `setVertexLabel`, pelo mesmo `normalizeLabel` — passa por `trim()` e depois
+     precisa ter 1 a 64 pontos de código Unicode (`MAX_VERTEX_LABEL_LENGTH`; um emoji vale 1 e "e" + acento
+     combinante valem 2), sem normalização Unicode e **sem exigir unicidade**. Erro `INVALID_VERTEX_LABEL` com
+     `reason` (`NOT_A_STRING`, `EMPTY`, `TOO_LONG`). No `addVertex` só `undefined` significa "omitido" (`null` é
+     inválido) e o retorno é `Result<{ graph, vertex }>`; em caso de erro nada é criado e o contador de ids não
+     avança. Limitação: `trim()` não remove caracteres invisíveis como U+200B.
    - **Edição de propriedades** (`setVertexLabel`, `setEdgeWeight`): validam nesta ordem — alvo existe → valor
      válido. `setEdgeWeight(g, id, undefined)` **remove** o peso; `0` é um peso; `null` é inválido. Se o valor
      final é igual ao atual, devolvem o **mesmo grafo** (o editor pode ignorar o passo no histórico de

@@ -73,19 +73,30 @@ function defaultLabel(seq: number): string {
   return label;
 }
 
-export function addVertex(graph: Graph, label?: string): { graph: Graph; vertex: Vertex } {
-  const vertex: Vertex = {
-    id: `v${graph.nextVertexSeq}`,
-    label: label ?? defaultLabel(graph.nextVertexSeq),
-  };
-  return {
+/**
+ * Cria um vértice. Sem `label`, usa o rótulo padrão (A, B, …, Z, AA…, a partir do contador). Com
+ * `label`, aplica as mesmas regras do `setVertexLabel`: `trim()` e depois 1 a `MAX_VERTEX_LABEL_LENGTH`
+ * pontos de código; rótulos repetidos são permitidos. Só `undefined` significa "omitido": `null` e
+ * qualquer outro valor que não seja string são recusados. Em caso de erro nada é criado e o contador de
+ * ids não avança.
+ */
+export function addVertex(
+  graph: Graph,
+  label?: string,
+): Result<{ graph: Graph; vertex: Vertex }> {
+  const finalLabel =
+    label === undefined ? ok(defaultLabel(graph.nextVertexSeq)) : normalizeLabel(label);
+  if (!finalLabel.ok) return finalLabel;
+
+  const vertex: Vertex = { id: `v${graph.nextVertexSeq}`, label: finalLabel.value };
+  return ok({
     graph: {
       ...graph,
       vertices: [...graph.vertices, vertex],
       nextVertexSeq: graph.nextVertexSeq + 1,
     },
     vertex,
-  };
+  });
 }
 
 /** Remove o vértice e todas as arestas incidentes a ele (como origem ou como destino). */

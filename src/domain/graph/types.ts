@@ -8,7 +8,7 @@ export type Vertex = {
   readonly id: VertexId;
   /**
    * Texto exibido ao aluno. Não precisa ser único: a identidade do vértice é o `id`.
-   * Ao editar com `setVertexLabel`, tem de 1 a 64 pontos de código e nenhum espaço nas pontas.
+   * Quando informado (`addVertex`, `setVertexLabel`), tem de 1 a 64 pontos de código e nenhum espaço nas pontas.
    */
   readonly label: string;
 };

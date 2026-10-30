@@ -13,8 +13,6 @@ Legenda: ✅ concluída · 🔄 em andamento · ⬜ pendente
 | Expo Go da SDK 58 nas lojas | A documentação (changelog de 15/10/2026) diz que chega "em poucas semanas". **Não confirmado em 30/10/2026.** No iOS, a doc cita instalação via TestFlight com `npx eas-cli@latest go`. Plano B: development build. |
 | Identificadores de publicação (`android.package`, `ios.bundleIdentifier`) | Não definidos; só são exigidos para builds EAS/lojas (Fase 13). |
 | Licença do projeto | Não definida (a LICENSE do template da Expo não foi copiada). |
-| Repositório Git | A pasta não é um repositório. Rode `git init` antes do primeiro commit. |
-| Rótulo no `addVertex` | O `addVertex` (incremento 1) ainda aceita rótulo vazio, sem `trim` e sem limite, enquanto o `setVertexLabel` aplica as regras de 1 a 64 pontos de código. Alinhar exige trocar o retorno do `addVertex` para `Result`. Decidir antes do incremento 3 (o `parseGraph` do incremento 5 também precisará da mesma regra). |
 | `npm audit` | 16 achados (13 baixos, 3 altos) em dependências transitivas do ferramental do Expo/Jest (`zod`, `deepmerge`); o "conserto" sugerido rebaixaria para `expo@51`, então **não foi aplicado**. Reavaliar a cada atualização de SDK. |
 | Componente de bottom sheet | Decidir na tarefa 3.7 após ler a doc da SDK vigente (`@expo/ui` BottomSheet × alternativas). |
 
@@ -50,11 +48,36 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
 - ✅ 2.2 **Incremento 2:**
   - ✅ Parte A: grau (entrada, saída, total), vizinhança (sucessores, predecessores, vizinhos) e vértices isolados.
   - ✅ Parte B: `setVertexLabel` (trim, 1 a 64 pontos de código, repetidos permitidos) e `setEdgeWeight` (`undefined` remove, `0` é peso).
-- ⬜ 2.3 **Incremento 3:** lista de adjacência e matriz de adjacência (ausência de aresta ≠ peso zero).
-- ⬜ 2.4 **Incremento 4:** matriz de incidência com a convenção de sinais declarada para orientados e não orientados.
-- ⬜ 2.5 **Incremento 5:** `serializeGraph` e `parseGraph(unknown)` validando todas as invariantes; testes de propriedade
-  (Σ graus = 2·|E| no não orientado; Σ entrada = Σ saída = |E| no orientado).
+- 🔄 2.3 **Incremento 3 — representações** (um commit por etapa; cada etapa só começa com autorização):
+  - ✅ 3.0 `addVertex` devolve `Result` e valida o rótulo pelas mesmas regras do `setVertexLabel` (`null` não conta como "omitido").
+  - ⬜ 3.1 **Lista de adjacência** (`adjacency.ts`): uma linha por vértice, na ordem dos vértices; entradas
+    `{ vertexId, edgeId, weight? }` na ordem de `successors`. Orientado: só arcos de saída. Não orientado: cada
+    aresta aparece nas duas pontas.
+  - ⬜ 3.2 **Matriz de adjacência** (`adjacency.ts`): `{ vertexIds, cells }`, com `cells[i][j]` = `null` (sem aresta)
+    ou `{ edgeId, weight? }` (`weight` ausente = aresta sem peso; `0` = peso zero). Os três estados ficam
+    distintos e **o peso 1 nunca é gravado no modelo**. Ler a matriz como números (0/1 para grafo sem pesos, ∞ na
+    ausência para caminhos mínimos etc.) é uma função de **interpretação** à parte, com opções explícitas, que
+    não perde a informação original.
+  - ⬜ 3.3 **Matriz de incidência** (`incidence.ts`): `{ vertexIds, edgeIds, cells }`, vértices × arestas na ordem
+    de inserção. Orientado: **+1 na origem e −1 no destino**; não orientado: 1 nas duas pontas; as demais células
+    valem 0. Fonte conferida: Boaventura & Jurkiewicz, §2.1, p. 20 (ver `REFERENCIAS.md`).
+  - ⬜ 3.4 **Testes cruzados** entre as três representações (grafos pseudoaleatórios de semente fixa, sem dependência
+    nova) e **análise de complexidade** (tabela abaixo) registrada em `ARCHITECTURE.md`.
+- ⬜ 2.4 **Incremento 4:** `serializeGraph` e `parseGraph(unknown)` validando todas as invariantes (inclusive a regra
+  de rótulos); testes de propriedade (Σ graus = 2·|E| no não orientado; Σ entrada = Σ saída = |E| no orientado).
 - Critério: `npm test` cobre o domínio e passa sem nenhum import de React Native.
+
+**Custos previstos das representações** (V = vértices, E = arestas, d(v) = grau; análise teórica, **sem medições**):
+
+| Estrutura | Construção | Espaço | Vizinhos de v | Existe a aresta (u,v)? |
+| --- | --- | --- | --- | --- |
+| Lista de arestas (o próprio `Graph`) | — | Θ(V + E) | O(E) | O(E) |
+| Lista de adjacência | Θ(V + E) | Θ(V + E) (2E entradas no não orientado) | O(d(v)) | O(d(u)) |
+| Matriz de adjacência | Θ(V²) | Θ(V²) (2E células ocupadas no não orientado) | O(V) | O(1) após o índice id → posição, Θ(V) |
+| Matriz de incidência | Θ(V · E) | Θ(V · E) (só 2E células não nulas) | O(E + d(v) · V) (a linha dá as arestas; cada coluna dá a outra ponta) | O(E) (comparar as linhas de u e v) |
+
+A etapa 3.4 confirma esses custos no código e na tabela de `ARCHITECTURE.md`; limites de tamanho para a interface só
+depois de medir.
 
 ## Fase 3 — Canvas touch-first ⬜
 
