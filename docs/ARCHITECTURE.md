@@ -14,8 +14,10 @@
         dependências só apontam para baixo
 ```
 
-- **Domínio** (`src/domain`, a partir da Fase 2): TypeScript puro e imutável. Não importa React, React Native,
-  Expo nem Zustand (será imposto por regra de ESLint). A posição dos vértices (`GraphLayout`) é separada do `Graph`.
+- **Domínio** (`src/domain`, desde a Fase 2): TypeScript puro e imutável. Não importa React, React Native,
+  Expo nem Zustand. A fronteira é imposta por ferramenta: o ESLint barra esses imports em `src/domain/**` e o
+  Jest roda o domínio em Node puro (projeto `domain` em `jest.config.js`). A posição dos vértices na tela
+  (`GraphLayout`, Fase 3) fica fora do `Graph`.
 - **Algoritmos** recebem um `Graph` imutável e parâmetros e devolvem **resultado + rastro determinístico**
   de passos. Não tocam em SVG, timers nem componentes. A animação nunca é a fonte da verdade.
 - **Apresentação** reproduz o rastro e renderiza. Coordenadas de mundo e de tela ficam separadas, com
@@ -54,7 +56,8 @@ src/
   components/          UI compartilhada: Screen, Text, Card, Badge, EmptyState, GraphGlyph, ActionCard
   features/            telas e conteúdo por assunto (home, lessons, graph-editor, challenges)
   theme/               tokens (cores claro/escuro, espaçamento, tipografia) e useTheme
-  domain/              (Fase 2+) grafo, algoritmos, simulação
+  domain/graph/        modelo do grafo (Fase 2): types, errors, graph (operações), index (API pública)
+  domain/              algoritmos e simulação entram nas fases seguintes
   storage/             (Fase 5+) SQLite e migrações
 docs/                  ROADMAP, ARCHITECTURE, REFERENCIAS
 scripts/               gerar-icones.py (dev; PyMuPDF)
@@ -76,9 +79,22 @@ Pastas são criadas só quando necessárias.
    (WCAG AA, 4,5:1) é verificado por teste.
 5. **Orientação travada em retrato** até a fase de tablets (Fase 13).
 6. **React Compiler** permanece ligado como no template; reavaliar na Fase 3 junto com worklets.
-7. **Modelo de domínio (decisão para a Fase 2, ainda não implementado):** grafo **simples** no MVP (sem
-   laços nem arestas paralelas, rejeitados com erro tipado); orientação **global** ao grafo (`directed`);
-   `weight` e `capacity` distintos; IDs de vértice/aresta estáveis; arestas orientadas guardam `source → target`.
+7. **Modelo de domínio** (`src/domain/graph`, implementado no incremento 1 da Fase 2):
+   - **Grafo simples**: laço → `SELF_LOOP`; aresta repetida → `DUPLICATE_EDGE`. Não orientado: `{u,v}` é par
+     não ordenado. Orientado: `u→v` e `v→u` são arcos distintos e ambos permitidos. Não se misturam arcos e arestas.
+   - **Orientação global** ao grafo (`directed`). Trocar a orientação de um grafo existente fica para quando o
+     editor precisar (orientado → não orientado pode gerar arestas paralelas).
+   - **Peso opcional por aresta**: ausente = não ponderada. Aceita qualquer número finito (inclusive 0 e
+     negativos; rejeitar negativos é decisão de cada algoritmo, ex.: Dijkstra). `NaN`, `±Infinity` e não-números →
+     `INVALID_WEIGHT`. `-0` é normalizado para `0`. `capacity` (fluxos) foi adiado para a Fase 12.
+   - **IDs estáveis e determinísticos**: o `Graph` guarda contadores (`nextVertexSeq`/`nextEdgeSeq`) e emite
+     `v1, v2…` / `e1, e2…`. Um ID removido nunca é reaproveitado, então seleção, layout e histórico não apontam
+     para o vértice errado. O `id` do grafo vem de quem persiste (o domínio não gera aleatoriedade).
+   - **Rótulos** são texto livre, sem unicidade; o padrão é A, B, …, Z, AA, AB… a partir do contador.
+   - **Erros como valores** (`Result<T>` com `GraphError.code`), não exceções; o texto ao aluno é da interface.
+     Ordem de validação do `addEdge`: origem existe → destino existe → laço → peso → duplicata.
+   - **Imutável**, com ordem de inserção preservada (desempate estável para os algoritmos). Buscas por ID são
+     lineares, adequadas ao tamanho dos grafos didáticos; algoritmos montam suas próprias estruturas (O(V+E)).
 8. **Renderização (Fase 3):** SVG atrás de interface `GraphRenderer`, para trocar por Skia depois.
 9. **Bibliografia fora do Git:** PDFs com direitos autorais ficam locais (`/*.pdf` ignorado).
 10. **Ícones gerados por script** a partir de um glifo vetorial único, para manter o app e a ilustração
@@ -90,7 +106,9 @@ Pastas são criadas só quando necessárias.
 
 ## Estratégia de testes
 
-- **Domínio:** Jest puro, em ambiente Node, ao lado do código; inclui propriedades (handshake lemma etc.).
+- **Domínio:** Jest em ambiente Node (projeto `domain`), ao lado do código; entradas congeladas com
+  `Object.freeze` para provar imutabilidade; propriedades (handshake lemma etc.) a partir do incremento 5.
+  Na Fase 2 foi conferido por mutação que os testes detectam mutação de entrada e reaproveitamento de IDs.
 - **Componentes/rotas:** Jest + React Native Testing Library (`jest-expo`); rotas via `renderRouter`.
 - **Tema:** contraste calculado a partir dos tokens.
 - **Em dispositivo (manual):** gestos pinch/pan/drag, safe areas, comportamento da barra de abas nativa,

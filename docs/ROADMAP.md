@@ -39,15 +39,18 @@ Legenda: ✅ concluída · 🔄 em andamento · ⬜ pendente
 - **Não verificado:** iOS (sem macOS), aparelho físico, TalkBack/VoiceOver, orientação paisagem (travada em retrato).
   O Jest não exercita a barra de abas nativa; ela só foi vista no emulador.
 
-## Fase 2 — Modelo matemático ⬜
+## Fase 2 — Modelo matemático 🔄
 
-Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Zustand.
+Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Zustand. Regras do modelo em
+`ARCHITECTURE.md` (decisão 7). Fora do recorte por falta de uso agora: `capacity` (→ Fase 12) e `GraphLayout` (→ Fase 3).
 
-- ⬜ 2.1 Tipos `Vertex`, `Edge`, `Graph`, `GraphLayout`; IDs estáveis; `schemaVersion`; regra de ESLint que proíbe imports de UI em `src/domain/**`; `testEnvironment: node` para o domínio.
-- ⬜ 2.2 Operações imutáveis: adicionar/remover vértice (remove arestas incidentes), adicionar/remover aresta, renomear, definir peso e capacidade. Erros tipados (laço, aresta duplicada, vértice inexistente).
-- ⬜ 2.3 Consultas: vizinhança, grau (entrada/saída/total), grafo simples, grafo vazio.
-- ⬜ 2.4 `parseGraph(unknown)` com validação (base da persistência e da importação).
-- ⬜ 2.5 Testes de propriedade: Σ graus = 2·|E| (não orientado); Σ grau de entrada = Σ grau de saída = |E| (orientado).
+- ✅ 2.1 **Incremento 1:** fronteira do domínio (Jest em Node + regra de ESLint), tipos `Vertex`/`Edge`/`Graph`, `Result`/`GraphError`,
+  `createGraph`, `addVertex`/`removeVertex`, `addEdge`/`removeEdge`, `getVertex`/`getEdge`/`findEdge`, `order`, `size`.
+- ⬜ 2.2 **Incremento 2:** grau (entrada, saída, total) e vizinhança (sucessores, predecessores, vizinhos); `setVertexLabel` e `setEdgeWeight`.
+- ⬜ 2.3 **Incremento 3:** lista de adjacência e matriz de adjacência (ausência de aresta ≠ peso zero).
+- ⬜ 2.4 **Incremento 4:** matriz de incidência com a convenção de sinais declarada para orientados e não orientados.
+- ⬜ 2.5 **Incremento 5:** `serializeGraph` e `parseGraph(unknown)` validando todas as invariantes; testes de propriedade
+  (Σ graus = 2·|E| no não orientado; Σ entrada = Σ saída = |E| no orientado).
 - Critério: `npm test` cobre o domínio e passa sem nenhum import de React Native.
 
 ## Fase 3 — Canvas touch-first ⬜
