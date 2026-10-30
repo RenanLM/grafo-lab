@@ -762,9 +762,10 @@ unidades de tela (≈ 48 dp) é independente do desenho.
   Zustand. Importa só o domínio e a si mesmo. Responsabilidades futuras (um módulo por incremento): coordenadas de
   mundo e de tela e transformações da câmera (3.1: `worldToScreen`, `screenToWorld`, `zoomAt`, `fitToBounds`);
   `GraphLayout` e posicionamento (3.2: `placeVertex`, `moveVertex`, `boundsOf`, `circularLayout`, `reconcileLayout`);
-  geometria dos elementos e identificação por posição (3.3); comandos do editor e histórico (3.4). Hoje a pasta tem
-  `index.ts` (contrato e exportações), `camera.ts` (3.1), `layout.ts` (3.2), `boundary.test.ts`, `camera.test.ts` e
-  `layout.test.ts`, mais `test-helpers.ts` (gerador de sementes e `deepFreeze`, só para testes).
+  geometria das arestas e identificação por posição (3.3: `edgeGeometry`, `edgeGeometries`, `hitTestVertex`, `hitTestEdge`,
+  `hitTest`); comandos do editor e histórico (3.4). Hoje a pasta tem `index.ts` (contrato e exportações), `camera.ts`
+  (3.1), `layout.ts` (3.2), `geometry.ts` (3.3), `boundary.test.ts`, `camera.test.ts`, `layout.test.ts` e
+  `geometry.test.ts`, mais `test-helpers.ts` (gerador de sementes e `deepFreeze`, só para testes).
 - **C. Interface** (`src/features/graph-editor/`): desenha vértices e arestas, recebe os toques e os traduz em
   **ações** do núcleo, mostra controles, propriedades e representações, executa animações. Não decide regras do grafo
   nem faz geometria.
@@ -981,6 +982,125 @@ excede o viewport, como a câmera já documenta.
   `Graph`, com a mesma disciplina de validação da leitura de grafos e arquivos de referência próprios; o documento do
   `Graph` v1 não ganha nenhum campo.
 
+### Geometria das arestas e hit-testing (incremento 3.3: `core/geometry.ts`)
+
+TypeScript puro: devolve **dados** (pontos, segmentos, curvas, setas, âncoras), nunca componentes, elementos SVG nem objetos de
+biblioteca visual; o renderizador (3.5, SVG hoje, Skia se um dia for preciso) os converte em comandos de desenho. Não altera
+`Graph` nem `GraphLayout` e não reconcilia layouts (isso é do `layout.ts`).
+
+**Mundo × tela, separados de propósito.**
+- A **geometria** é calculada em **coordenadas de mundo** e não conhece a câmera: o mesmo grafo e o mesmo layout dão a
+  mesma geometria com qualquer zoom e deslocamento. Raio do vértice, tamanho da seta e curvatura são em **unidades de
+  mundo** (crescem com o zoom).
+- O **hit-testing** recebe o toque em **dp de tela** e a câmera, converte a geometria com `worldToScreen` e mede em dp. A
+  área mínima de toque (48 dp de diâmetro) e a tolerância das arestas (12 dp) **não variam com o zoom**. Nada aqui usa pixels
+  físicos.
+
+**Tipos** (todos `readonly`; exportados por `core/index.ts`): `LineSegment { kind: 'line', from, to }`,
+`QuadraticCurve { kind: 'quadratic', from, control, to }`, `EdgePath` (união dos dois), `Arrowhead { tip, base, left, right }`,
+`EdgeGeometry { edgeId, sourceId, targetId, path, arrow?, labelAnchor }`, `GeometryOptions`, `HitTestOptions`, `VertexHit`,
+`EdgeHit` e `HitTarget` (união discriminada por `type`: `'vertex'`, `'edge'` ou `'background'`).
+
+**Identidade.** As posições vêm do `GraphLayout` pelo **id técnico** (nunca rótulo, índice ou posição no array). Cada
+geometria leva o `edgeId` e os ids de origem e destino como estão no grafo. Aresta com uma ponta sem posição (ou não finita),
+layout de **outro grafo** (`graphId` diferente) ou aresta inexistente: **sem geometria** (`undefined`, ou fora da lista).
+
+**Aresta reta** entre os centros A (origem) e B (destino), raio r, `d = |B − A|`, `u = (B − A) / d`:
+```text
+from = A + u·r          to = B − u·r          âncora do peso = ponto médio de from e to
+```
+O traço vai de **borda a borda**, nunca pelos centros. Exige `d > 2r`; com `d ≤ 2r` (sobrepostos, tangentes ou na mesma
+posição) **não há geometria**: não existe trecho visível nem direção definida, e nenhuma posição é movida para consertar isso.
+
+**Seta** (só em grafo orientado, `source → target`): a **ponta** (`tip`) é o fim do traço, na borda do destino, apontando na
+direção do traço ali (`u` na reta; a tangente final da curva). `base` fica `length` atrás da ponta e `left`/`right` a
+`halfWidth` dos lados da base (esquerda e direita de quem anda de A para B, na tela com Y para baixo). `length = min(arrowLength,
+traço visível)`, para a base não passar da borda da origem. Padrões provisórios: comprimento 12 e meia-largura 5. O traço
+`path` sempre vai até a ponta; um renderizador que queira o corpo sem sobrepor o triângulo pode terminá-lo em `arrow.base`.
+Cores e espessuras são do renderizador. Exemplo à mão (A = (0,0), B = (100,0), r = 20): traço de (20,0) a (80,0), ponta
+(80,0), base (68,0), asas (68,±5); invertida, a ponta passa para (20,0).
+
+**Arcos opostos** (grafo orientado com A → B **e** B → A): ambos viram **curvas de Bézier quadrática**
+`B(t) = (1−t)²·from + 2(1−t)t·control + t²·to`. Regra de curvatura: cada arco curva para a **sua direita** (na tela, com Y
+para baixo). Como a direita de B → A é a esquerda de A → B, as duas ficam em lados opostos da reta entre os centros, **sem
+depender da ordem de inserção**. Com `n = (−u.y, u.x)` (a direita de u), `M = (A + B) / 2` e `k` a curvatura (padrão 0,3):
+```text
+controle C = M + n · (k · d)
+from = A + unit(C − A) · r        to = B + unit(C − B) · r        (a curva sai radialmente do círculo)
+```
+A tangente final aponta de C para B (é a direção da seta); a âncora do peso é `B(½) = ¼·from + ½·C + ¼·to`, **na própria
+curva**. Exemplo (A = (0,0), B = (100,0)): `A → B` tem C = (50, 30), `from` = (17,15; 10,29), `to` = (82,85; 10,29) e
+âncora (50; 20,145); `B → A` é a mesma curva girada 180° em torno de (50, 0): C = (50, −30), âncora (50; −20,145). As duas
+âncoras ficam a ≈ 40 uma da outra. Aresta **sem** arco oposto continua **reta**, e em grafo não orientado nunca há curva (um
+par, uma aresta). `k` precisa ser > 0 (com 0 as duas coincidiriam; valor inválido vale o padrão).
+
+**Hit-testing** (`hitTestVertex`, `hitTestEdge`, `hitTest`; `(graph, layout, camera, screenPoint, options?)`):
+- *Vértice:* o toque acerta se está a no máximo `max(minTouchDiameter / 2, vertexRadius · scale)` dp do centro na tela
+  (`worldToScreen`). Padrão: no mínimo **48 dp de diâmetro** em qualquer zoom; com zoom alto vale o raio visual, que cresce
+  (escala 4: 80 dp). Vários vértices na área: vence o de **menor distância ao centro**; empate exato, o **primeiro na ordem de
+  inserção** do grafo. Vértice sem posição não é acertado. Devolve `{ vertexId, distance }` (dp).
+- *Aresta:* a de **menor distância ao traço** a até `edgeTolerance` dp (padrão **12**, provisório); empate exato, a primeira
+  inserida (dois traços que se cruzam empatam no cruzamento, e vence o primeiro). A distância é ao **segmento**, nunca à reta
+  infinita; numa curva é à **trajetória de Bézier**, aproximada por uma poligonal de N = `curveSamples` segmentos (padrão 24,
+  teto 256), **não** à corda: o meio da corda de um arco oposto não acerta nada. Arcos opostos se distinguem porque cada um
+  tem a sua curva. Um toque na **área de um vértice nunca seleciona aresta** (`hitTestEdge` devolve `undefined` ali).
+- *Combinado* (`hitTest`): vértice, depois aresta, depois fundo, como `HitTarget`. `undefined` significa **entrada inválida**
+  (câmera inválida, toque não finito ou layout de outro grafo) e nunca "fundo". É o que o detector de gestos único do
+  canvas (3.10) vai chamar; ele não existe ainda.
+- Opções inválidas valem o padrão; nenhuma função lança nem devolve `NaN`/`Infinity`.
+
+**Erro da poligonal.** O desvio máximo entre um arco de Bézier de largura `h = 1/N` em `t` e a sua corda é
+`h² · |C − m| / 2` (C = controle, m = ponto médio dos extremos, em dp depois da conversão); a distância calculada difere da
+verdadeira em no máximo isso (a mais fora da curva, a menos dentro). Com N = 24: ≈ 0,26 dp para uma aresta curva de 1000 dp
+de corda e curvatura 0,3, contra uma tolerância de 12 dp; o teste confere a cota com um oráculo denso. Aumentar `curveSamples`
+reduz o erro.
+
+**Casos degenerados.**
+
+| Caso | Geometria | Hit-testing |
+| --- | --- | --- |
+| Grafo ou layout vazio, vértice isolado | nenhuma aresta | fundo (vértice isolado é acertado) |
+| Aresta com posição ausente | sem geometria; as demais saem | a aresta nunca é acertada |
+| Vértices na mesma posição ou a ≤ 2r | sem geometria (sem mover nada) | os vértices continuam acertáveis; empate pela ordem |
+| Vértices a 0,001 um do outro | duas áreas quase iguais | vence o de centro mais próximo do toque |
+| Coordenadas negativas ou muito grandes | finita ou ausente (se `dx` estoura) | centro não finito na tela → não acertado |
+| Câmera inválida, toque não finito | — | `undefined` |
+| Zoom 0,25 e 4, qualquer translação | igual (independe da câmera) | alvo mínimo de 48 dp; raio visual em zoom alto |
+| Arestas que se cruzam | cada uma com a sua geometria | menor distância; no cruzamento, a primeira inserida |
+
+**Complexidade** (V vértices, E arestas, N amostras por curva, C ≤ E arestas curvas):
+
+| Operação | Tempo | Observação |
+| --- | --- | --- |
+| `edgeGeometry` (uma aresta) | **Θ(E)** | acha a aresta pelo id e, em grafo orientado, procura o arco oposto |
+| `edgeGeometries` (todas) | **Θ(V + E)** (tempo e espaço) | índice temporário `Map` origem → destinos (Θ(E)); sem busca por aresta, que daria Θ(E²); o teste confere que `find`/`some`/`filter` nem são chamados |
+| `hitTestVertex` | **Θ(V)** | uma varredura; não lê as arestas |
+| `hitTestEdge` | **Θ(V + E + C·N)** (pior caso Θ(V + E·N)) | confere os vértices, monta as geometrias e mede cada uma (O(1) na reta, Θ(N) na curva) |
+| `hitTest` | Θ(V) se acerta um vértice; senão, como `hitTestEdge` | |
+
+Não há índice espacial. Cada chamada de aresta refaz `edgeGeometries`: um toque é raro; quem consultar a cada quadro
+(por exemplo, durante um arrasto) deve guardar as geometrias.
+
+**Limitações conhecidas.**
+- Raio (20), seta (12/5), curvatura (0,3), alvo (48 dp), tolerância (12 dp) e amostras (24) são **provisórios**, a ajustar
+  em aparelho.
+- A curva sai radialmente do círculo, mas **pode roçar nos círculos** de vértices muito próximos (`d` pouco acima de `2r`);
+  não há desvio nem desempate visual.
+- Só **uma** curvatura, para o par oposto; sem laços nem arestas paralelas (o domínio não os permite). O peso e o rótulo
+  são ancorados, mas **não** são alvos de toque.
+- O alvo mínimo de 48 dp pode **engolir arestas curtas** com zoom afastado (por exemplo, o círculo de 6 vértices com
+  espaçamento 96 a 0,25 vira um bloco de áreas de vértice). A interface decide o que fazer (limites de zoom, botão de
+  enquadrar); o núcleo mantém a regra "vértice vence".
+- Dois traços que se cruzam: dentro do erro da poligonal, a ordem entre traços quase coincidentes não é determinável; o
+  resultado é determinístico, não "o mais correto".
+- Coordenadas ≈ 10³⁰⁸: finitude garantida; sem geometria quando `dx` estoura.
+
+**Preparação para o renderizador SVG (3.5).** A cena é `edgeGeometries(graph, layout, opções)` mais as posições do layout;
+os pontos de mundo viram dp com `worldToScreen`. Linha: `M from L to`. Curva: `M from Q control to`. Seta: polígono
+`tip, left, right`. Peso: texto em `labelAnchor`. Espessuras e cores (por tokens) são do renderizador, que deve usar as
+**mesmas** opções de geometria que o hit-testing, para que o que se vê seja o que se toca. Os limites para enquadrar
+(`fitToBounds`) devem ser os de `boundsOf` **expandidos pelo raio visual**, em unidades de mundo.
+
 ### IDs e histórico: estratégia (corrige o ROADMAP; implementação no 3.4)
 
 A decisão anterior do ROADMAP ("desfazer restaura também os contadores de ids") **está errada**: ela reabriria um id
@@ -1019,7 +1139,7 @@ rótulo. Regras do histórico:
    criação distinta compartilha id** e `redo(undo(s))` é exatamente `s`; modelo de referência independente; abrir
    documento e continuar a editar não reemite ids.
 
-### Interação por toque (arquitetura; nada implementado)
+### Interação por toque (arquitetura; só o hit-testing está implementado, no 3.3)
 
 - **Um detector para o canvas**, com gestos compostos (API de hooks do Gesture Handler 3: `useTapGesture`,
   `usePanGesture`, `usePinchGesture`, `useLongPressGesture` e as composições `useSimultaneousGestures`,
@@ -1028,7 +1148,8 @@ rótulo. Regras do histórico:
 - **Alvo de toque em unidades de tela, independente do zoom:** ≈ 48 dp de diâmetro (raio ≈ 24 dp) em volta do centro do
   vértice, calculado depois de converter o centro do mundo para a tela. O desenho pode ser menor (ou maior com zoom),
   mas **o alvo nunca encolhe** abaixo disso. Sobreposição: o vértice mais perto do toque vence, e o empate vai para a
-  ordem de inserção. Arestas têm tolerância própria em dp de tela e só são acertadas fora dos vértices.
+  ordem de inserção. Arestas têm tolerância própria em dp de tela e só são acertadas fora dos vértices. **Implementado**
+  em `hitTestVertex`, `hitTestEdge` e `hitTest` (`core/geometry.ts`, 3.3); o detector de gestos que os chama é o 3.10.
 - **Modo explícito** (Selecionar, Adicionar vértice, Conectar) e uma função pura `(modo, toque, o que há sob ele) → ação`.
 
   | Modo | Toque | Arrasto que começa em vértice | Arrasto no fundo | Pinça | Toque longo |
@@ -1169,6 +1290,30 @@ descartada: o repositório não tem nenhum editor nem tela falsa.
   idempotência, centroide) 67 foram detectadas; a que sobrou é **equivalente** (`positionOf` sem `hasOwnProperty`).
   Duas mutações (`({}) as Positions`) só valem com parênteses: sem eles o Babel lê um bloco de função e a suíte não
   compila, o que o relatório mostra como "0 total" e **não** conta como detecção.
+- **Geometria e hit-testing** (`core/geometry.test.ts`, projeto `editor-core`, Node; 120 testes): reta horizontal, vertical e
+  diagonal 3-4-5 **calculadas à mão** (borda a borda, âncora no meio), `d ≤ 2r` sem geometria (tangente, sobreposto, mesma
+  posição, vizinhos a 0,001), seta nos dois sentidos e nas três orientações, seta cortada pelo traço visível, **arcos opostos**
+  com valores de uma reimplementação independente (controle `C = M + n·k·d` com d = 100, 200 e 300 na vertical, curvas em lados
+  opostos, imagem uma da outra pelo ponto médio, âncoras sobre as curvas, resultado independente da ordem de inserção),
+  distância a segmento (além das pontas e degenerado) e a curva (cota do erro da poligonal contra um oráculo denso),
+  hit-testing de vértices e arestas em **câmeras de escala 0,25, 1 e 4 com translações positivas e negativas** (fronteiras
+  exatas e 1 dp além, tolerância em dp, não em mundo), prioridade vértice > aresta > fundo, empates (vértices na mesma
+  posição, ordem de inserção diferente da do id, arestas paralelas, cruzamento), entradas inválidas (câmera, toque, layout
+  de outro grafo), integração com `circularLayout` e `reconcileLayout`, `edgeGeometries` sem chamar `find/some/filter` nas
+  arestas e `hitTestVertex`/`hitTest` sem ler `graph.edges`, mais **propriedades com sementes fixas** (500 casos de geometria:
+  ids, extremos na borda, seta apontando para o destino, finitude e ausência de `-0`; inverter a aresta inverte a seta;
+  um toque que acompanha a transformação do elemento acerta o mesmo id em qualquer zoom e deslocamento; a distância em dp
+  é a do mundo vezes a escala, com oráculo denso). Em **mutação dirigida** (77 mutações de `geometry.ts`: origem e destino
+  trocados, linha pelos centros, ponta ausente ou no lado errado, asas, curvatura do lado errado ou zerada, arcos opostos
+  coincidentes, índice de arcos, distância à reta infinita, tolerância em mundo, alvo mínimo, fronteiras `<` × `<=`, empates,
+  prioridade, câmera ignorada após zoom ou pan, entradas inválidas, aliasing e alteração de argumentos) 70 foram detectadas
+  (3 só depois de reforçar os testes: o deslocamento do controle com `d ≠ 100`, a normalização de `-0` e a tolerância 0).
+  As 7 que sobraram são **equivalentes**: o índice de arcos em grafo não orientado e a checagem `graph.directed` de
+  `edgeGeometry` (um grafo simples não orientado nunca tem aresta oposta); o filtro de resultado não finito e o de posição
+  não finita (a checagem `distance` finita as torna inalcançáveis); o último ponto da poligonal tomado de `quadraticPoint(…, 1)`
+  (devolve exatamente `to`); o melhor inicial infinito da poligonal (o primeiro segmento já cobre o ponto inicial); e o filtro
+  de posição não finita nos vértices (um centro `NaN` dá distância `NaN`, que `!(d <= alcance)` descarta). Os testes de
+  mutação também mostraram que `-0` só nasce de entrada com `-0` (`quadraticPoint`), pois somas de opostos dão `+0`.
 - **Ambiente de testes das bibliotecas do editor** (`graph-editor/native-stack.test.tsx`, projeto `app`): SVG
   (`Svg`, `G`, `Line`, `Circle`, `Text`) renderiza com suas propriedades; toque e arrasto simulados por
   `createGestureController` atualizam a tela; um componente com valor compartilhado e estilo animado monta. Não testa o

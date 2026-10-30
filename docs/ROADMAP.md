@@ -130,9 +130,10 @@ estão em `ARCHITECTURE.md`):
 A etapa 3.4B registrou a tabela comparativa e as medições em `ARCHITECTURE.md`; limites de tamanho para a interface
 só depois de medir em Hermes e em Android com poucos recursos (tarefa 4.6).
 
-## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0, 3.1 e 3.2 concluídos; os demais aguardam autorização)
+## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 a 3.3 concluídos; os demais aguardam autorização)
 
-Só os incrementos 3.0 (infraestrutura), 3.1 (câmera pura) e 3.2 (`GraphLayout` puro) foram feitos; **não há editor**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
+Só os incrementos 3.0 (infraestrutura), 3.1 (câmera pura), 3.2 (`GraphLayout` puro) e 3.3 (geometria das arestas e
+hit-testing puros) foram feitos; **não há editor**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
 quando houver regra nova e uma mensagem de commit. Tamanhos: **S** (um módulo puro e seus testes) e **M** (lógica +
 interface). Ordem como no prompt mestre: renderizar, criar, conectar, selecionar; **depois** arrastar, deslocar e
 ampliar, em incrementos separados.
@@ -259,15 +260,38 @@ ampliar, em incrementos separados.
     dirigida: 68 mutações de `layout.ts`, 67 detectadas e 1 **equivalente** (consultar `positionOf` sem `hasOwnProperty`
     é indiferente porque o objeto de posições não tem protótipo; a consulta própria fica como defesa em profundidade).
   - *Commit:* `feat(editor): add GraphLayout and deterministic placement`
-- ⬜ **3.3 Geometria e hit-testing puros** (M). `edgeGeometry` (reta de borda a borda, ponta de seta no destino, **arcos
-  opostos em curvas deslocadas** para não se sobreporem, âncora do peso), `hitTestVertex`, `hitTestEdge`. Entradas: o
-  `GraphLayout` do 3.2 (posições por id, em mundo) e a câmera do 3.1; o raio visual do vértice, que o `boundsOf` não
-  cobre (ele devolve centros), nasce aqui como constante de mundo, e a interface (3.5) o usa para expandir os limites
-  antes de enquadrar.
-  - *Aceite (critério da fase):* **depois de zoom e pan, tocar acerta o vértice esperado**; a tolerância é fixa em
-    dp de tela; vértices sobrepostos desempatam por distância e depois por ordem de inserção; toque no vazio não
-    acerta nada; aresta só é acertada fora dos vértices.
-  - *Testes:* matriz de câmeras × pontos; toques próximos de dois vértices; arcos opostos distintos; sementes fixas.
+- ✅ **3.3 Geometria das arestas e hit-testing** (M, `core/geometry.ts`; só TypeScript puro, sem SVG, gestos, store,
+  histórico nem telas). Entradas: o `GraphLayout` do 3.2 (posições por id técnico, em mundo) e a câmera do 3.1.
+  - *3.3A, geometria (mundo):* `edgeGeometry(graph, layout, edgeId, opções?)` e `edgeGeometries(graph, layout, opções?)`
+    devolvem **dados** (`LineSegment`, `QuadraticCurve`, `Arrowhead`, `labelAnchor`, `edgeId`, `sourceId`, `targetId`), nunca
+    elementos de biblioteca visual. Reta **de borda a borda** (raio visual 20, configurável), nunca pelos centros; peso
+    ancorado no ponto médio. Grafo orientado: ponta de seta (comprimento 12, meia-largura 5, configuráveis) **na borda do
+    destino**, base recuada, comprimento limitado ao traço visível. **Arcos opostos** (A → B e B → A) viram **curvas de
+    Bézier quadráticas**, cada uma para a **sua direita** na tela (lados opostos, independente da ordem de inserção),
+    com controle `C = M + n·(0,3·d)` e extremos radiais nos círculos; aresta sem oposto continua reta. Vértices a ≤ 2r,
+    ponta sem posição, layout de outro grafo ou aresta inexistente → **sem geometria** (`undefined`/fora da lista); nada
+    é movido nem reconciliado. Fórmulas e exemplos em `ARCHITECTURE.md`, "Geometria das arestas e hit-testing".
+  - *3.3B, hit-testing (tela, dp):* `hitTestVertex`, `hitTestEdge` e `hitTest` (`'vertex' | 'edge' | 'background'`).
+    Vértice: raio de toque `max(24 dp, raio visual · escala)` (alvo ≥ 48 dp em qualquer zoom), menor distância ao centro,
+    empate → ordem de inserção. Aresta: distância ao **segmento** (reta) ou à **curva de Bézier** (poligonal de 24 segmentos,
+    erro ≤ `|C−m|/(2N²)`), tolerância de **12 dp** (provisória), empate → ordem de inserção; **toque na área de vértice nunca
+    seleciona aresta**. `undefined` só para entrada inválida (câmera, toque, layout de outro grafo).
+  - *Aceite (critério da fase):* **depois de zoom e pan, tocar acerta o elemento esperado** (propriedade com sementes fixas
+    sobre câmeras de escala 0,25, 1 e 4 e translações positivas e negativas); a tolerância é em dp, não em unidades de mundo;
+    vértices sobrepostos desempatam por distância e depois por ordem de inserção; toque no vazio é fundo; aresta só é
+    acertada fora dos vértices.
+  - *Complexidade:* uma aresta Θ(E); todas Θ(V + E) (índice temporário de arcos, sem busca por aresta); `hitTestVertex`
+    Θ(V); `hitTestEdge` Θ(V + E + C·N) (pior caso Θ(V + E·N)); `hitTest` Θ(V) se acerta vértice. Sem índice espacial.
+  - *Limitações:* constantes provisórias (raio 20, seta 12/5, curvatura 0,3, alvo 48 dp, tolerância 12 dp, 24 amostras); a
+    curva pode roçar círculos muito próximos; o alvo mínimo engole arestas curtas com zoom afastado; peso e rótulo não são
+    alvos de toque; cada consulta de aresta refaz as geometrias (guardar o resultado se for chamada a cada quadro).
+  - *Testes:* 120 novos em `core/geometry.test.ts` (reta horizontal, vertical e diagonal 3-4-5 à mão; seta; arcos opostos
+    com valores de uma reimplementação independente; distância a segmento e a curva; matriz de câmeras; prioridade, empates e
+    cruzamentos; integração com `circularLayout` e `reconcileLayout`; 500 casos de geometria e propriedades de zoom e pan com
+    oráculo denso); total do projeto **1638**. Mutação dirigida: 77 mutações de `geometry.ts`, 70 detectadas e 7
+    **equivalentes** (defesas redundantes de propósito; lista em `ARCHITECTURE.md`).
+  - *Preparação para o 3.5:* o renderizador consome `edgeGeometries` com as **mesmas** opções do hit-testing e
+    converte com `worldToScreen`; para enquadrar, expande os limites de `boundsOf` pelo raio visual.
   - *Commit:* `feat(editor): add edge geometry and hit testing`
 
 - ⬜ **3.4 Núcleo do editor, histórico e store** (M). `applyAction(estado, ação) → { estado, erro? }` puro (adicionar
