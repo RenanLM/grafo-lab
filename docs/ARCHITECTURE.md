@@ -762,13 +762,86 @@ unidades de tela (≈ 48 dp) é independente do desenho.
   Zustand. Importa só o domínio e a si mesmo. Responsabilidades futuras (um módulo por incremento): coordenadas de
   mundo e de tela e transformações da câmera (3.1: `worldToScreen`, `screenToWorld`, `zoomAt`, `fitToBounds`);
   `GraphLayout` e posicionamento (3.2); geometria dos elementos e identificação por posição (3.3); comandos do editor e
-  histórico (3.4). Hoje a pasta só tem `index.ts` (contrato) e `boundary.test.ts`.
+  histórico (3.4). Hoje a pasta tem `index.ts` (contrato e exportações), `camera.ts` (3.1), `boundary.test.ts` e
+  `camera.test.ts`, mais `test-helpers.ts` (gerador de sementes e `deepFreeze`, só para testes).
 - **C. Interface** (`src/features/graph-editor/`): desenha vértices e arestas, recebe os toques e os traduz em
   **ações** do núcleo, mostra controles, propriedades e representações, executa animações. Não decide regras do grafo
   nem faz geometria.
 - **Store Zustand** (3.4, **não criada**): liga A, B e C. Guarda o estado do editor `{ graph, layout, seleção, modo,
   câmera, histórico }` e só **chama** funções puras do núcleo e do domínio; nenhuma regra mora na store nem em
   componentes. Dependências só para baixo: C → store → B → A.
+
+### Câmera (incremento 3.1: `core/camera.ts`)
+
+TypeScript puro; nenhum gesto, SVG, animação nem store. A interface (3.5 em diante) e os gestos (3.10) só chamam
+estas funções.
+
+**Espaços e unidades.** *Mundo*: onde o grafo "mora", em unidades de mundo independentes do aparelho (é o espaço do
+`GraphLayout`). *Tela*: o que o aluno vê, em **dp** (unidades lógicas de layout do React Native, **não** pixels
+físicos), com a origem no canto superior esquerdo da **área de desenho** (`Viewport`), não da janela. Nos dois, **X
+cresce para a direita e Y para baixo**; escala **uniforme**; **sem rotação**.
+
+**Convenção.** `Camera = { x, y, scale }` e
+```text
+telaX = mundoX · scale + camera.x          mundoX = (telaX − camera.x) / scale
+telaY = mundoY · scale + camera.y          mundoY = (telaY − camera.y) / scale
+```
+`(camera.x, camera.y)` é onde a **origem do mundo** aparece (em dp) e `scale` é quantos dp vale 1 unidade de mundo. A
+câmera neutra `NEUTRAL_CAMERA = { x: 0, y: 0, scale: 1 }` é a identidade. Câmera **válida**: `x` e `y` finitos e `scale`
+finita e `> 0` (pré-condição; `isValidCamera` confere nas fronteiras). Exemplo calculado à mão: câmera `(20, 10, 2)` leva
+o ponto `(5, 8)` a `(30, 26)`.
+
+**API** (exportada por `core/index.ts`; tipos `Point`, `Camera`, `Viewport`, `Bounds`, `ScaleLimits` e
+`FitToBoundsOptions`, todos `readonly`; `NEUTRAL_CAMERA` e `DEFAULT_SCALE_LIMITS` são congelados porque são compartilhados):
+
+| Função | O que faz |
+| --- | --- |
+| `worldToScreen(camera, point)`, `screenToWorld(camera, point)` | as fórmulas acima, uma a inversa da outra (a menos do arredondamento) |
+| `zoomAt(camera, focus, factor, limits?)` | multiplica a escala por `factor` mantendo o ponto do mundo sob `focus` (em dp) **no mesmo lugar da tela** |
+| `panBy(camera, delta)` | soma `delta` (dp) à translação; o conteúdo acompanha o dedo; a escala não muda |
+| `centerOn(camera, worldPoint, viewport)` | leva um ponto do mundo ao centro da área de desenho, mantendo a escala |
+| `fitToBounds(camera, bounds, viewport, options?)` | enquadra um retângulo do mundo: maior escala possível, dentro dos limites, conteúdo centrado |
+| `clampScale(scale, limits?)`, `isValidCamera(camera)` | auxiliares (os gestos vão limitar a pinça com o primeiro) |
+
+**Fórmulas.**
+- *Zoom ancorado.* O ponto do mundo sob o foco é `w = (focus − camera) / escala`; exigir que ele continue em `focus`
+  depois do zoom dá `camera' = focus − w · escalaNova`, isto é, com `razão = escalaNova / escalaAtual`:
+  `x' = focus.x − (focus.x − camera.x) · razão` (e igual em Y). A escala efetiva é `clampScale(escala · fator, limits)`, e
+  **a razão usada é a efetiva, não o fator pedido**: assim o foco continua parado mesmo quando o limite corta o zoom
+  (de escala 1, o fator 8 vira escala 4, razão 4; com razão 8 o foco andaria).
+- *Centralizar.* `x' = largura/2 − ponto.x · escala`, `y' = altura/2 − ponto.y · escala`.
+- *Enquadrar.* Área útil = viewport − 2 · margem por eixo (margem em dp, nos quatro lados); escala desejada =
+  `min(útilX / largura, útilY / altura)` sobre os eixos com tamanho > 0; escala = `clampScale(desejada, limits)`; centro
+  = `(minX + largura/2, minY + altura/2)` levado ao centro do viewport. O centro usa `min + metade` (não `(min + max)/2`)
+  para não estourar com valores enormes.
+
+**Limites de escala provisórios:** `DEFAULT_SCALE_LIMITS = { min: 0.25, max: 4 }`, a ajustar depois de testes em aparelhos.
+
+**Casos degenerados e entradas inválidas** (nenhuma função lança; nenhuma devolve `NaN`, `Infinity` nem `-0` com câmera
+válida):
+- As funções que devolvem câmera devolvem **a própria câmera recebida (mesma referência)** quando um argumento é
+  inválido (fator não finito ou ≤ 0, foco, deslocamento ou ponto não finitos, viewport com largura ou altura ≤ 0 ou não
+  finita, limites inválidos, margem negativa ou não finita) ou quando a conta estoura; nada é "consertado" em silêncio, e
+  quem chama detecta a recusa com `resultado === camera`. Também devolvem a mesma referência quando nada muda (fator 1,
+  escala já no limite).
+- `fitToBounds`: margem que não deixa área útil (`2·margem ≥ largura ou altura`) é inválida; `bounds` com valor não
+  finito, `min > max` ou largura/altura que estoura é inválido; **grafo sem vértices** (`bounds` indefinido) volta à
+  **câmera neutra** (com a escala 1 limitada), pois não há o que enquadrar; **um único vértice** (largura e altura zero) usa
+  escala 1 limitada e o ponto vai ao centro; **largura ou altura zero** (vértices alinhados): a escala vem do outro eixo.
+  A câmera atual **não** influencia o enquadramento; é só o valor devolvido nos casos inválidos.
+- **Limites de escala que impedem o enquadramento completo:** a escala válida é mantida, o conteúdo continua centrado e
+  **pode exceder o viewport** (escala mínima) ou ficar pequeno (máxima); a escala nunca é forçada para fora dos limites.
+- `worldToScreen` e `screenToWorld` são as fórmulas puras: com câmera ou ponto inválido o resultado pode não ser finito
+  (os tipos garantem a forma dos objetos; só valores numéricos inválidos são tratados). `clampScale(NaN)` vale como a
+  escala neutra (1) limitada. Resultados `-0` são normalizados para `0`, como no peso das arestas.
+
+**Complexidade.** Todas as funções são **O(1)** em tempo e espaço (um número fixo de contas e de objetos pequenos).
+`fitToBounds` também é O(1) **porque recebe os limites do conteúdo já calculados**; calcular esses limites a partir de
+todas as posições (`boundsOf`, 3.2) é **O(V)**, uma varredura, e fica fora desta etapa.
+
+**Precisão.** Cada conversão faz uma multiplicação (ou divisão) e uma soma, então o erro relativo fica em torno de
+10⁻¹⁶ vezes a magnitude dos valores intermediários; os testes usam tolerância relativa de 10⁻⁹ a essas magnitudes
+(coordenadas na casa de 10¹² incluídas) em vez de uma exigência absoluta.
 
 ### Contrato do `GraphLayout` (especificação; implementação no 3.2)
 
@@ -835,7 +908,7 @@ rótulo. Regras do histórico:
 - **Alvo de toque em unidades de tela, independente do zoom:** ≈ 48 dp de diâmetro (raio ≈ 24 dp) em volta do centro do
   vértice, calculado depois de converter o centro do mundo para a tela. O desenho pode ser menor (ou maior com zoom),
   mas **o alvo nunca encolhe** abaixo disso. Sobreposição: o vértice mais perto do toque vence, e o empate vai para a
-  ordem de inserção. Arestas têm tolerância própria em pixels de tela e só são acertadas fora dos vértices.
+  ordem de inserção. Arestas têm tolerância própria em dp de tela e só são acertadas fora dos vértices.
 - **Modo explícito** (Selecionar, Adicionar vértice, Conectar) e uma função pura `(modo, toque, o que há sob ele) → ação`.
 
   | Modo | Toque | Arrasto que começa em vértice | Arrasto no fundo | Pinça | Toque longo |
@@ -944,6 +1017,22 @@ descartada: o repositório não tem nenhum editor nem tela falsa.
   relativos não saem da pasta e que o alias `@/domain/graph` funciona em Node. Em **mutação dirigida** (10 mutações
   de `eslint.config.js` e `jest.config.js`) todas foram detectadas; uma só sobrevivia (o Skia, que o padrão `react-*`
   já cobre pelo nome do pacote) e ganhou um caso com um pacote da Shopify sem "react" no nome.
+- **Câmera** (`core/camera.test.ts`, projeto `editor-core`, Node): conversões **calculadas à mão** nos dois sentidos
+  (translação, escala, coordenadas negativas e fracionárias, o exemplo do enunciado), zoom em vários focos e com os
+  limites (a razão efetiva, não a pedida), pan, centralização, enquadramento de conteúdo pequeno, grande, retangular, com
+  margem e degenerado (vazio, um vértice, linha vertical e horizontal, limites que excluem a escala 1), entradas
+  inválidas (a própria câmera), imutabilidade e determinismo, e **propriedades com sementes fixas** (gerador próprio de
+  `core/test-helpers.ts`, sem biblioteca): ida e volta nos dois sentidos, o foco do zoom parado com e sem limitação,
+  composição de zooms, pan, centralização e invariantes do enquadramento (centro no centro; conteúdo dentro da área
+  útil ou escala parada no mínimo; enquadramento justo), com contagem de que cada regime foi exercitado. Em **mutação
+  dirigida** (46 mutações de `camera.ts`: sinais, ordem escala/translação, fórmula inversa, foco, razão, limites,
+  margem, centro, pan, divisão por zero, guardas e alteração de argumentos) 44 foram detectadas; as 2 que sobraram são
+  **equivalentes** (defesas redundantes de propósito): a guarda `largura > 0` do enquadramento (dividir por zero dá
+  `+Infinity`, que o `min` e o limite já absorvem) e a checagem antecipada de largura/altura não finitas (a guarda final
+  de resultado finito cobre). **Nota:** o Jest compila os módulos **fora do modo estrito** (preset do React Native), então
+  escrever num objeto congelado é ignorado em vez de lançar; a imutabilidade é conferida por comparação com uma cópia
+  tirada antes, com argumentos não congelados (o comentário "módulos são strict" em `src/domain/graph/test-helpers.ts`
+  vale só para código estrito).
 - **Ambiente de testes das bibliotecas do editor** (`graph-editor/native-stack.test.tsx`, projeto `app`): SVG
   (`Svg`, `G`, `Line`, `Circle`, `Text`) renderiza com suas propriedades; toque e arrasto simulados por
   `createGestureController` atualizam a tela; um componente com valor compartilhado e estilo animado monta. Não testa o

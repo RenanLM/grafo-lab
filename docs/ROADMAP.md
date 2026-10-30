@@ -130,9 +130,9 @@ estão em `ARCHITECTURE.md`):
 A etapa 3.4B registrou a tabela comparativa e as medições em `ARCHITECTURE.md`; limites de tamanho para a interface
 só depois de medir em Hermes e em Android com poucos recursos (tarefa 4.6).
 
-## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 concluído; os demais aguardam autorização)
+## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 e 3.1 concluídos; os demais aguardam autorização)
 
-Só o incremento 3.0 foi feito (infraestrutura; **não há editor**). Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
+Só os incrementos 3.0 (infraestrutura) e 3.1 (câmera pura) foram feitos; **não há editor**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
 quando houver regra nova e uma mensagem de commit. Tamanhos: **S** (um módulo puro e seus testes) e **M** (lógica +
 interface). Ordem como no prompt mestre: renderizar, criar, conectar, selecionar; **depois** arrastar, deslocar e
 ampliar, em incrementos separados.
@@ -141,7 +141,7 @@ ampliar, em incrementos separados.
 - **`Graph` e `GraphLayout` separados.** `GraphLayout = { positions: Record<VertexId, { x, y }> }` em **coordenadas de
   mundo**, indexado pelo id estável do vértice; não entra no `Graph` nem no documento v1. Posição e câmera nunca mudam um
   resultado matemático.
-- **Mundo ≠ tela.** Toda conversão passa por `worldToScreen`/`screenToWorld`. O tamanho de toque é em **pixels de tela**
+- **Mundo ≠ tela.** Toda conversão passa por `worldToScreen`/`screenToWorld`. O tamanho de toque é em **dp de tela**
   (alvo ≥ 48 dp) e independe do zoom; o hit-testing opera em coordenadas de tela convertidas.
 - **Lógica pura fora de componentes e de stores.** Câmera, layout, geometria, hit-testing, transições do editor e
   histórico vivem em `src/features/graph-editor/core/**`: TypeScript puro, sem React, React Native, Expo nem Zustand
@@ -204,34 +204,49 @@ ampliar, em incrementos separados.
     `native-stack.test.tsx` (SVG, gestos e Reanimated no Jest); mutação dirigida de `eslint.config.js` e `jest.config.js`.
   - *Commit:* `chore(editor): add svg, gesture handler, reanimated and worklets, and the pure editor core boundary`
 
-- ⬜ **3.1 Sistema de coordenadas e câmera** (S, `core/camera.ts`). Convenção: `Camera = { x, y, scale }` com
-  `tela = mundo · scale + (x, y)` (`(x, y)` é onde a origem do mundo cai na tela, em pixels; escala uniforme, sem
-  rotação; y para baixo nos dois espaços). Funções puras: `worldToScreen(câmera, ponto)`, `screenToWorld(câmera,
-  ponto)`, `zoomAt(câmera, pontoFocalNaTela, fator, limites?)` (o ponto do mundo sob o foco **não se move**; escala
-  limitada), `panBy(câmera, dx, dy)`, `fitToBounds(retângulo do mundo, viewport, margem, limites?)`, `centerOn(câmera,
-  pontoDoMundo, viewport)` e `clampScale`. Limites padrão **provisórios** 0,25 a 4 (a confirmar em dispositivo).
-  Casos degenerados definidos: grafo vazio → câmera neutra; um vértice (retângulo de área zero) → centraliza com escala
-  1; viewport ≤ 0 ou margem maior que o viewport → devolve a câmera recebida; nunca `NaN` nem `Infinity`.
-  - *Aceite:* ida e volta mundo → tela → mundo devolve o ponto (erro < 1e-9) para qualquer câmera válida; o ponto
-    focal do zoom fica onde estava; `fitToBounds` deixa **todos** os vértices dentro do viewport com a margem; entradas
-    não são alteradas; sem `NaN`.
-  - *Testes:* exemplos calculados à mão (inclusive zoom focal e ajuste ao grafo), propriedades com sementes fixas (ida
-    e volta, composição de `zoomAt`, ajuste contém os pontos), casos degenerados; mutação dirigida nas fórmulas (sinal,
-    ordem escala/translação, fórmula do foco, margem). **Não conecta nada a gestos.**
+- ✅ **3.1 Sistema de coordenadas e câmera** (S, `core/camera.ts`). `Camera = { x, y, scale }` com
+  `tela = mundo · scale + (x, y)`: `(x, y)` é onde a origem do mundo aparece, **em dp** (unidades lógicas do React
+  Native, não pixels físicos); X para a direita e Y para baixo nos dois espaços; escala uniforme, sem rotação; câmera
+  neutra `{ 0, 0, 1 }`. Funções puras e **O(1)**: `worldToScreen`, `screenToWorld`, `zoomAt(camera, focus, factor,
+  limits?)` (o ponto sob o foco não sai do lugar; a translação usa a **razão efetiva** depois da limitação, não o fator
+  pedido), `panBy`, `centerOn`, `fitToBounds(camera, bounds | undefined, viewport, { margin?, limits? })`,
+  `clampScale` e `isValidCamera`; limites padrão provisórios 0,25 a 4. Casos degenerados: argumentos inválidos ou
+  estouro devolvem **a própria câmera (mesma referência)**; grafo sem vértices → câmera neutra; um vértice → escala 1
+  limitada, no centro; linhas (largura ou altura zero) → escala do outro eixo; limites que impedem o enquadramento
+  completo → escala válida e conteúdo centrado, que pode exceder o viewport; nunca `NaN`, `Infinity` nem `-0`.
+  Convenções, fórmulas, tabela de casos e complexidade em `ARCHITECTURE.md`, "Câmera". **Não há gestos nem
+  interface ligados a ela.**
+  - *Testes:* 145 novos em `core/camera.test.ts` (conversões à mão, zoom/pan/centralização/enquadramento, degenerados,
+    entradas inválidas, imutabilidade e propriedades com sementes fixas); total do projeto 1416. Mutação dirigida: 46
+    mutações de `camera.ts`, 44 detectadas e 2 equivalentes (defesas redundantes de propósito).
   - *Commit:* `feat(editor): add pure camera transforms`
 
-- ⬜ **3.2 `GraphLayout` e posicionamento** (S). `GraphLayout` imutável; `placeVertex`, `moveVertex`,
-  `removePosition`, `reconcileLayout(graph, layout)` (descarta posições órfãs e posiciona vértices sem posição),
-  `boundsOf` e `circularLayout(graph)` determinístico (para exemplos e grafos lidos sem layout).
-  - *Aceite:* editar o `Graph` nunca desloca posições (seguem o id, não o índice); `reconcileLayout` é idempotente;
-    mesmo grafo, mesmo layout; entradas não são alteradas.
-  - *Testes:* imutabilidade (entradas congeladas), grafos aleatórios com remoções, determinismo.
+- ⬜ **3.2 `GraphLayout` e posicionamento automático** (S, `core/layout.ts`; importa `Point` e `Bounds` de `camera.ts` e
+  `Graph`/`VertexId` de `@/domain/graph`). Implementa o contrato de `ARCHITECTURE.md`, "Contrato do `GraphLayout`":
+  `GraphLayout = { positions: Record<VertexId, Point> }`, em coordenadas de mundo, chaves = ids técnicos (nunca
+  rótulos), independente da câmera. Funções puras: `placeVertex`, `moveVertex`, `removePosition`, `positionOf`,
+  `boundsOf(layout): Bounds | undefined` (O(V); `undefined` se vazio, para alimentar o `fitToBounds`),
+  `reconcileLayout(graph, layout)` e `circularLayout(graph, options?)`.
+  - *Posicionamento automático:* `circularLayout` põe os vértices **na ordem de inserção** numa circunferência centrada
+    na origem do mundo, começando no topo e avançando no sentido horário **da tela** (Y para baixo), com raio
+    `R = max(Rmín, espaçamento · n / 2π)` para que vizinhos fiquem a pelo menos `espaçamento` (padrão provisório 96
+    unidades de mundo); `n = 1` → origem; coordenadas **arredondadas a 3 casas** para que o mesmo grafo dê o mesmo
+    layout em qualquer motor (`Math.sin`/`cos` não são exatos bit a bit entre V8 e Hermes). `reconcileLayout` descarta
+    posições órfãs e posiciona cada vértice sem posição: layout vazio e vários vértices → `circularLayout`; senão, a
+    primeira posição livre de uma espiral determinística ao redor do centroide (distância mínima `espaçamento`), na
+    ordem de inserção. Posição ou deslocamento não finito → o mesmo layout (como a câmera).
+  - *Aceite:* as posições seguem o **id**, não o índice (remover o vértice do meio não desloca os outros); depois do
+    `reconcileLayout` há uma posição por vértice e nenhuma a mais; `reconcileLayout` é idempotente; mesmo grafo, mesmo
+    layout; entradas não são alteradas; `boundsOf` + `fitToBounds` enquadram um `circularLayout` inteiro no viewport.
+  - *Testes:* exemplos à mão (triângulo e quadrado no círculo), propriedades com sementes fixas sobre grafos do
+    domínio com remoções (distância mínima no círculo, idempotência, ids), imutabilidade, determinismo, integração com a
+    câmera; mutação dirigida (id × índice, órfãs mantidas, raio, ordem, arredondamento, sentido). Sem serialização (3.13)
+    e sem layouts dirigidos por força.
   - *Commit:* `feat(editor): add GraphLayout and deterministic placement`
-
 - ⬜ **3.3 Geometria e hit-testing puros** (M). `edgeGeometry` (reta de borda a borda, ponta de seta no destino, **arcos
   opostos em curvas deslocadas** para não se sobreporem, âncora do peso), `hitTestVertex`, `hitTestEdge`.
   - *Aceite (critério da fase):* **depois de zoom e pan, tocar acerta o vértice esperado**; a tolerância é fixa em
-    pixels de tela; vértices sobrepostos desempatam por distância e depois por ordem de inserção; toque no vazio não
+    dp de tela; vértices sobrepostos desempatam por distância e depois por ordem de inserção; toque no vazio não
     acerta nada; aresta só é acertada fora dos vértices.
   - *Testes:* matriz de câmeras × pontos; toques próximos de dois vértices; arcos opostos distintos; sementes fixas.
   - *Commit:* `feat(editor): add edge geometry and hit testing`
