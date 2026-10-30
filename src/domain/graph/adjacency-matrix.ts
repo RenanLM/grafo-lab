@@ -1,4 +1,5 @@
 import type { Edge, EdgeId, Graph, VertexId } from './types';
+import { weightField } from './weight';
 
 // Matriz de adjacência estrutural: `cells[i][j]` descreve a aresta de `vertexIds[i]` para `vertexIds[j]`.
 //
@@ -101,5 +102,5 @@ export function adjacencyAsNumbers(
 }
 
 function cellFor(edge: Edge): AdjacencyCell {
-  return { edgeId: edge.id, ...(edge.weight !== undefined && { weight: edge.weight }) };
+  return { edgeId: edge.id, ...weightField(edge) };
 }

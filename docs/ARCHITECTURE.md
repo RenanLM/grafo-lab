@@ -217,11 +217,69 @@ Pastas são criadas só quando necessárias.
 12. **`labelVisibilityMode="labeled"`** nas abas: por padrão o Android só mostrava o rótulo da aba ativa;
     rótulos sempre visíveis ajudam a leitura e a acessibilidade.
 
+## Representações do grafo: visão comparativa
+
+As quatro são **derivadas** do `Graph`, sem estado próprio (regerar depois de editar), usam só IDs (rótulo não as
+altera), são imutáveis por construção (objetos e arrays próprios, sem aliasing) e não incluem laços (o modelo é simples).
+V = vértices, E = arestas, d(v) = grau. Custos teóricos; os números medidos estão abaixo.
+
+| | Lista de adjacência | Matriz de adjacência | Matriz de incidência | Lista de incidência |
+| --- | --- | --- | --- | --- |
+| **Função** | `adjacencyList` | `adjacencyMatrix` | `incidenceMatrix` | `incidenceList` |
+| **Estrutura** | `AdjacencyRow[]`: `{ vertexId, entries }` | `{ vertexIds, cells }`, V × V | `{ vertexIds, edgeIds, cells }`, V × E | `{ vertexIds, rows }` |
+| **Entrada ou célula** | o **vizinho**: `{ vertexId, edgeId, weight? }` | `null` (sem aresta) ou `{ edgeId, weight? }` em `[i][j]` | `-1`, `0` ou `1` (vértice i × aresta j) | a **aresta**: `{ edgeId, oppositeVertexId, role, weight? }` |
+| **Orientado** | só arcos de **saída** | `[i][j]` é o arco i→j, independente de `[j][i]` | **+1 na origem, −1 no destino** | `outgoing` (origem) e `incoming` (destino) |
+| **Não orientado** | a aresta nas duas linhas | simétrica | +1 nas duas pontas | `undirected` nas duas linhas |
+| **Arcos opostos** | `edgeId` próprio, em linhas diferentes | duas células, `edgeId` próprio | duas colunas, sinais trocados | duas arestas, papéis complementares |
+| **Pesos** | copiados: ausente, `0` e negativo distintos | idem; `null` = sem aresta (≠ peso zero) | **não contém** pesos | copiados, iguais nas duas pontas |
+| **Ordem** | linhas: vértices; entradas: vértices vizinhos | linhas e colunas: vértices | linhas: vértices; colunas: arestas (inserção) | linhas: vértices; entradas: arestas (inserção) |
+| **Construção (tempo)** | Θ(V + E) | Θ(V²) | Θ(V + V·E) | Θ(V + E) |
+| **Espaço** | Θ(V + E) | Θ(V²) + Θ(E) objetos | Θ(V + V·E) | Θ(V + E) |
+| **Consultas** | vizinhos O(d(v)); (u,v) O(d(u)) | célula O(1)\*; vizinhos O(V) | célula O(1)\*; grau O(E); extremos O(V); vizinhos O(E + d(v)·V) | incidências O(d(v)); (u,v) O(d(u)) |
+| **Limitações** | sem arcos de entrada; achar a linha por id exige índice | Θ(V²) mesmo em grafo esparso | Θ(V·E): cresce com E (até Θ(V³)); sem pesos | a ordem difere da lista de adjacência (por aresta, não por vértice) |
+
+\* depois de obter os índices dos vértices (`indexOf` é O(V); um `Map` do consumidor dá O(1) após Θ(V)). A busca no
+`Map` usado nas construções é O(1) **esperada**, não de pior caso. Convenção da matriz de incidência: Boaventura &
+Jurkiewicz, §2.1, p. 20 (ver `REFERENCIAS.md`); a interface deve mostrar uma legenda de sinais.
+
+**Medições pontuais** (30/10/2026; Node 24.12, i5-11400H, 16 GB; **um processo Node por estrutura e tamanho**, com
+`--expose-gc`; tempo = mediana de 5 construções; memória = heap retido após coleta de lixo; E ≈ 4V no esparso):
+
+| Grafo | Lista de adjacência | Matriz de adjacência | Matriz de incidência | Lista de incidência |
+| --- | --- | --- | --- | --- |
+| Esparso, V = 1 400 (E = 5 600) | 1,6 ms · 0,8 MB | 7,4 ms · 15,5 MB | 45,2 ms · 60,0 MB | 1,1 ms · 0,9 MB |
+| Completo não orientado, V = 250 (E = 31 125) | 8,0 ms · 3,6 MB | 3,0 ms · 2,9 MB | 24,4 ms · 59,6 MB | 4,1 ms · 4,0 MB |
+| Completo orientado, V = 200 (E = 39 800) | 8,9 ms · 2,2 MB | 2,1 ms · 1,8 MB | 24,9 ms · 61,1 MB | 4,2 ms · 5,1 MB |
+| Esparso, V = 160 000 (E = 640 000) | 645,6 ms · 94,0 MB | inviável (V² ≈ 2,6·10¹⁰) | inviável | 208,3 ms · 98,9 MB |
+
+- **Matrizes:** ≈ 8 bytes por posição da grade (V² na de adjacência, V·E na de incidência), constantes entre 61 mil e
+  8 milhões de posições. A incidência custa E/V vezes a memória da matriz de adjacência: 4× no esparso (E ≈ 4V) e
+  ≈ 20× em V = 250 completo (59,6 MB contra 2,9 MB, pois as células da matriz de adjacência ocupada são objetos).
+- **Listas:** de V = 10 000 a V = 160 000 (16×) o tempo cresceu ≈ 29× na lista de adjacência e ≈ 29× na de incidência:
+  um pouco acima do linear (efeitos de cache e de coleta de lixo), longe do quadrático. A lista de adjacência levou ≈ 3×
+  o tempo da de incidência no mesmo grafo: duas passadas e baldes temporários contra uma passada.
+- **Grafo denso:** a matriz de adjacência é a mais barata em tempo e em memória; a de incidência é a mais cara. No
+  esparso (V = 1 400), as listas usaram ≈ 17× a ≈ 75× menos memória e levaram ≈ 5× a ≈ 40× menos tempo que as matrizes.
+- **Estas medições NÃO são desempenho garantido em Android ou iOS** e **não definem limites do aplicativo**: foram feitas
+  em Node/V8 num PC, não em Hermes nem em aparelhos modestos. A interface calculará as matrizes sob demanda e decidirá
+  pelo produto **V·E** (incidência) e por V² (adjacência) só depois de medir em Android com poucos recursos (ROADMAP,
+  Fase 4). A memória e o tempo de cada representação foram aferidos em processos separados para evitar o artefato de
+  coleta de lixo que apareceu numa medição anterior (valores negativos de heap).
+
 ## Estratégia de testes
 
 - **Domínio:** Jest em ambiente Node (projeto `domain`), ao lado do código; entradas congeladas com
   `Object.freeze` para provar imutabilidade; propriedades (handshake lemma etc.) a partir do incremento 5.
   Na Fase 2 foi conferido por mutação que os testes detectam mutação de entrada e reaproveitamento de IDs.
+- **Suíte cruzada das representações** (`representations.test.ts`): confere que as quatro descrevem o **mesmo grafo**,
+  independentemente dos testes unitários de cada uma. Para não repetir um erro comum às quatro: (1) **quatro
+  reconstruções de arestas escritas de formas diferentes** (a matriz de incidência só reconstrói extremos e sentido;
+  a lista de adjacência orientada só tem arcos de saída); (2) **dois grafos com as quatro estruturas calculadas à
+  mão**; (3) um **modelo de referência independente** (objetos simples, regras próprias) nas sequências
+  pseudoaleatórias de operações válidas e inválidas, que prevê o resultado e o código de erro de cada operação e
+  confere ids não consumidos; (4) **controles negativos**: o verificador precisa acusar representações corrompidas.
+  Todas as verificações usam sementes fixas. Em mutação aplicada **só a essa suíte**, 40 inconsistências sutis nos
+  quatro módulos foram detectadas.
 - **Componentes/rotas:** Jest + React Native Testing Library (`jest-expo`); rotas via `renderRouter`.
 - **Tema:** contraste calculado a partir dos tokens.
 - **Em dispositivo (manual):** gestos pinch/pan/drag, safe areas, comportamento da barra de abas nativa,

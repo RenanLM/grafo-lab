@@ -1,4 +1,5 @@
 import type { Edge, EdgeId, Graph, VertexId } from './types';
+import { weightField } from './weight';
 
 // Lista de adjacência: uma linha por vértice, com as arestas que partem dele.
 //
@@ -75,6 +76,6 @@ function entryFor(vertexId: VertexId, edge: Edge): AdjacencyEntry {
   return {
     vertexId,
     edgeId: edge.id,
-    ...(edge.weight !== undefined && { weight: edge.weight }),
+    ...weightField(edge),
   };
 }

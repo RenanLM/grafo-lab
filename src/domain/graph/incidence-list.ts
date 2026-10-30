@@ -1,4 +1,5 @@
 import type { Edge, EdgeId, Graph, VertexId } from './types';
+import { weightField } from './weight';
 
 // Lista de incidência: para cada vértice, as ARESTAS que incidem nele. Não confundir com a lista de adjacência:
 // lá o objeto de cada entrada é o vizinho (e as entradas seguem a ordem dos vértices); aqui o objeto é a
@@ -70,6 +71,6 @@ function entryFor(edge: Edge, oppositeVertexId: VertexId, role: IncidenceRole): 
     edgeId: edge.id,
     oppositeVertexId,
     role,
-    ...(edge.weight !== undefined && { weight: edge.weight }),
+    ...weightField(edge),
   };
 }
