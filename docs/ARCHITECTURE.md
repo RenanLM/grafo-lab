@@ -34,6 +34,7 @@
 | Testes | `jest-expo` + Jest 30 + `@testing-library/react-native` 14 | Jest 30 é exigido pela SDK 58 |
 | Node | 24.12 no ambiente | SDK 58 exige ≥ 22.13 (linha 22), ≥ 24.3 (linha 24) ou ≥ 26 |
 | Editor visual (Fase 3, incremento 3.0) | `react-native-svg` 15.16.0 · `react-native-gesture-handler` 3.3.0 · `react-native-reanimated` 4.7.1 · `react-native-worklets` 0.13.0 | exatamente as versões da SDK 58 (`npx expo install`); compatibilidade, divergência da doc do Gesture Handler e verificação no emulador em "Editor visual (Fase 3)" |
+| Estado do editor (Fase 3, incremento 3.4) | `zustand` 5.0.16 (dependência direta, `^5.0.16`) | `npx expo install zustand`; só em `graph-editor/editor-store.ts` (`zustand/vanilla`), fora do núcleo puro; `react` ≥ 18 é peer opcional e já está atendido |
 
 ### Expo Go × development build (SDK 58, segundo a documentação oficial)
 
@@ -58,7 +59,7 @@ src/
   app/                 rotas Expo Router (finas): (tabs)/{index,aprender,laboratorio,desafios}, +not-found
   components/          UI compartilhada: Screen, Text, Card, Badge, EmptyState, GraphGlyph, ActionCard
   features/            telas e conteúdo por assunto (home, lessons, graph-editor, challenges)
-    graph-editor/      interface do editor (SVG, gestos, animação, controles); a store Zustand entra no incremento 3.4
+    graph-editor/      interface do editor (SVG, gestos, animação, controles) e `editor-store.ts` (store Zustand, 3.4)
       core/            núcleo PURO do editor (câmera, layout, geometria, hit-testing, comandos, histórico); sem React/RN
   theme/               tokens (cores claro/escuro, espaçamento, tipografia) e useTheme
   domain/graph/        modelo do grafo (Fase 2): types, errors, graph (operações), queries (grau e vizinhança), adjacency, adjacency-matrix, incidence e incidence-list (representações), serialization (JSON v1; arquivos de referência em `golden/v1/`), deserialization (leitura validada do JSON v1), index (API pública)
@@ -677,7 +678,7 @@ arquitetura do núcleo puro, o ambiente de testes e esta especificação. O plan
 - **Estado anterior.** `gesture-handler` 3.4.0, `reanimated` 4.7.1 e `worklets` 0.13.1 já estavam em `node_modules`,
   mas **só como peers opcionais do `expo-router`** (não apareciam no `package.json`; por isso `expo install --check`
   não os acusava). Instalá-los como dependências diretas fixou as versões da SDK: `gesture-handler` voltou de 3.4.0
-  para 3.3.0 e `worklets` de 0.13.1 para 0.13.0. `zustand` **não** foi instalado (só entra no incremento 3.4).
+  para 3.3.0 e `worklets` de 0.13.1 para 0.13.0. `zustand` **não** foi instalado no 3.0 (entrou no incremento 3.4, versão 5.0.16).
 - **Divergência investigada (Gesture Handler × React Native 0.88).** O Expo recomenda `~3.3.0`, e a tabela da documentação do
   fornecedor marca 3.3.x como **não** listada para o RN 0.88 (3.4.x é a que lista). Resultado da investigação:
   1. os `peerDependencies` são `react: *` e `react-native: *`, então o npm não impõe nada;
@@ -694,7 +695,7 @@ arquitetura do núcleo puro, o ambiente de testes e esta especificação. O plan
 - **Development build:** **não é necessário** nesta etapa (as quatro bibliotecas estão no Expo Go da SDK 58). Se um dia
   for (comandos): `npx expo install expo-dev-client`, depois `npx expo run:android` (SDK Android e Java 17 já existem
   no ambiente) ou `npx eas-cli@latest build --profile development --platform android`.
-- **Fora do escopo, não instalado:** bottom sheet, Skia, `expo-dev-client`, `zustand`.
+- **Fora do escopo, não instalado:** bottom sheet, Skia, `expo-dev-client` (o `zustand` entrou no 3.4).
 
 ### Configuração
 
@@ -763,15 +764,17 @@ unidades de tela (≈ 48 dp) é independente do desenho.
   mundo e de tela e transformações da câmera (3.1: `worldToScreen`, `screenToWorld`, `zoomAt`, `fitToBounds`);
   `GraphLayout` e posicionamento (3.2: `placeVertex`, `moveVertex`, `boundsOf`, `circularLayout`, `reconcileLayout`);
   geometria das arestas e identificação por posição (3.3: `edgeGeometry`, `edgeGeometries`, `hitTestVertex`, `hitTestEdge`,
-  `hitTest`); comandos do editor e histórico (3.4). Hoje a pasta tem `index.ts` (contrato e exportações), `camera.ts`
-  (3.1), `layout.ts` (3.2), `geometry.ts` (3.3), `boundary.test.ts`, `camera.test.ts`, `layout.test.ts` e
-  `geometry.test.ts`, mais `test-helpers.ts` (gerador de sementes e `deepFreeze`, só para testes).
+  `hitTest`); comandos do editor, histórico e mensagens de erro (3.4: `applyAction`, `createEditorState`, `nextFreeLabel`,
+  `graphErrorMessage`). Hoje a pasta tem `index.ts` (contrato e exportações), `camera.ts` (3.1), `layout.ts` (3.2),
+  `geometry.ts` (3.3), `editor.ts` e `error-messages.ts` (3.4), seus testes (`*.test.ts`, mais `boundary.test.ts`), e
+  `test-helpers.ts` (gerador de sementes e `deepFreeze`, só para testes).
 - **C. Interface** (`src/features/graph-editor/`): desenha vértices e arestas, recebe os toques e os traduz em
   **ações** do núcleo, mostra controles, propriedades e representações, executa animações. Não decide regras do grafo
   nem faz geometria.
-- **Store Zustand** (3.4, **não criada**): liga A, B e C. Guarda o estado do editor `{ graph, layout, seleção, modo,
-  câmera, histórico }` e só **chama** funções puras do núcleo e do domínio; nenhuma regra mora na store nem em
-  componentes. Dependências só para baixo: C → store → B → A.
+- **Store Zustand** (3.4, `graph-editor/editor-store.ts`): liga A, B e C. Guarda o `EditorState` do núcleo
+  (`{ graph, layout, selection, mode, history, error? }`) e só **chama** `applyAction` e `createEditorState`; nenhuma
+  regra mora na store nem em componentes. A **câmera** é estado de tela, fora do desfazer, e entra na store geral com a
+  interface. Dependências só para baixo: C → store → B → A.
 
 ### Câmera (incremento 3.1: `core/camera.ts`)
 
@@ -1101,7 +1104,7 @@ os pontos de mundo viram dp com `worldToScreen`. Linha: `M from L to`. Curva: `M
 **mesmas** opções de geometria que o hit-testing, para que o que se vê seja o que se toca. Os limites para enquadrar
 (`fitToBounds`) devem ser os de `boundsOf` **expandidos pelo raio visual**, em unidades de mundo.
 
-### IDs e histórico: estratégia (corrige o ROADMAP; implementação no 3.4)
+### IDs e histórico: estratégia (corrige o ROADMAP; implementada no 3.4, `core/editor.ts`)
 
 A decisão anterior do ROADMAP ("desfazer restaura também os contadores de ids") **está errada**: ela reabriria um id
 já emitido. Princípio do domínio: um id removido **nunca** é reaproveitado, e a identidade técnica **não** depende do
@@ -1114,21 +1117,24 @@ rótulo. Regras do histórico:
    continuam queimados (regra 1).
 4. **Os contadores são monotônicos e independentes dos instantâneos.** O histórico guarda instantâneos
    `{ graph, layout }`, mas os contadores `nextVertexSeq` e `nextEdgeSeq` do estado **atual** são sempre o máximo já
-   alcançado na sessão. Ao desfazer ou refazer, o instantâneo de destino **herda os contadores do estado que está
-   sendo deixado** (que são os maiores, pois só os comandos os aumentam e um comando descarta o `future`):
-   `destino.graph = { ...destino.graph, nextVertexSeq: atual.nextVertexSeq, nextEdgeSeq: atual.nextEdgeSeq }`.
-   Isso é uma cópia de objeto comum, **sem alterar o domínio**: um `Graph` com contador à frente dos ids é um estado
-   válido (acontece depois de qualquer remoção). Como o contador atual **é** o piso de ids da sessão, não é preciso
-   outra variável; `redo(undo(s))` devolve `s` exatamente.
-5. **O domínio não muda agora.** No 3.4 pode valer acrescentar ao domínio uma função pura pequena (por exemplo
-   `reserveIds(graph, { vertex, edge })`, que só faz os contadores crescerem) em vez de repetir o spread; é decisão
-   daquele incremento, com testes próprios.
-6. **Rótulos são outra coisa.** O rótulo padrão sai do contador (`addVertex` sem rótulo usa A, B, C… por
-   `nextVertexSeq`); como o contador não recua, depois de desfazer a criação de C e criar outro vértice o rótulo
-   padrão será **D** (A, B, D). **Reaproveitar rótulos livres é uma decisão separada** do editor, a tomar no 3.4 ou no
-   3.6 e registrar aqui: (a) manter o rótulo vindo do contador (simples, coerente com o domínio, deixa lacunas); (b) o
-   editor calcular o menor rótulo livre (`nextFreeLabel`, função pura no núcleo) e passá-lo a `addVertex(graph, rótulo)`,
-   sem reaproveitar **id** algum. Recomendação provisória: **(b)**, por ser o que o aluno espera ver (A, B, C…).
+   alcançado na sessão. Ao desfazer ou refazer, o instantâneo de destino recebe, **de cada contador, o maior valor entre
+   o dele e o do estado que está sendo deixado** (o do estado atual já é o piso, pois só os comandos os aumentam e um
+   comando descarta o `future`):
+   `destino.graph = { ...destino.graph, nextVertexSeq: max(destino, atual), nextEdgeSeq: max(destino, atual) }`.
+   Isso é uma cópia de objeto comum, **sem alterar o domínio** nem o instantâneo (se o destino já não está atrás, o próprio
+   objeto é usado): um `Graph` com contador à frente dos ids é um estado válido (acontece depois de qualquer remoção).
+   Como o contador atual **é** o piso de ids da sessão, não é preciso outra variável; `redo(undo(s))` devolve o mesmo
+   grafo (conteúdo e contadores) e o mesmo layout. Vértices e arestas têm contadores independentes, cada um tratado em
+   separado. No refazer o `max` é redundante (o `future` já carrega o piso), mas barato.
+5. **O domínio não mudou.** Decidido no 3.4: o `max` por contador é feito no núcleo (`restoredGraph`), sem acrescentar
+   `reserveIds` ao domínio, que continua exatamente como estava.
+6. **Rótulos são outra coisa** (decisão do 3.4: **menor rótulo livre**). O rótulo padrão de `addVertex` continua saindo do
+   contador (A, B, C… por `nextVertexSeq`), e como o contador não recua daria **D** depois de desfazer a criação de C. O
+   editor, porém, calcula o **menor rótulo livre** da sequência A, B, …, Z, AA, AB, … entre os que nenhum vértice usa
+   (`nextFreeLabel`, Θ(V)) e o passa explicitamente a `addVertex`: criar A, B, C, desfazer C e criar outro dá o vértice `v4`
+   com o rótulo `C`. O **rótulo** se reaproveita; o **id** nunca. Rótulos dados pelo aluno contam como usados e nunca são
+   alterados; duplicados informados continuam permitidos (o domínio os permite); a comparação diferencia maiúsculas de
+   minúsculas.
 7. **Documentos e histórico sem colisão.** (i) Ao abrir um documento, os contadores vêm do arquivo (a leitura garante
    que superam todos os ids presentes) e o histórico começa **vazio**; (ii) o documento gravado leva sempre os
    contadores atuais, que são o piso da sessão; (iii) o histórico **não é persistido**; (iv) o layout é por id e só vale
@@ -1136,8 +1142,91 @@ rótulo. Regras do histórico:
    limitação já documentada: ids de elementos removidos **antes** da gravação não podem ser reconstruídos de um
    documento adulterado.
 8. **Testes do 3.4:** propriedade com sementes fixas sobre sequências de comandos, desfazer e refazer: **nenhuma
-   criação distinta compartilha id** e `redo(undo(s))` é exatamente `s`; modelo de referência independente; abrir
-   documento e continuar a editar não reemite ids.
+   criação distinta compartilha id** e `redo(undo(s))` devolve o mesmo grafo e layout; modelo de referência independente;
+   os contadores só crescem a cada passo. Abrir um documento e continuar a editar sem reemitir ids vale por construção
+   (a leitura garante os contadores) e entra com a persistência.
+
+### Núcleo de edição e store (incremento 3.4: `core/editor.ts`, `core/error-messages.ts`, `graph-editor/editor-store.ts`)
+
+`applyAction(state, action) → { state, error? }` é **pura**: sem exceção, sem relógio, sem sorteio; a store Zustand só guarda
+o resultado. Toda regra vem do domínio (`addVertex`, `addEdge`, `removeVertex`, `removeEdge`, `setVertexLabel`,
+`setEdgeWeight`) e de `layout.ts`; o domínio, o JSON v1 e as quatro representações não mudaram (e não são recalculadas aqui:
+a interface as pede sob demanda).
+
+**Estado** (`EditorState`, tudo `readonly`): `graph`, `layout` (do `graph.id`, uma posição por vértice, nenhuma órfã: mantido
+**por construção**; as invariantes completas são conferidas nos testes, não revalidadas em produção), `selection` (união
+discriminada `none | vertex { vertexId } | edge { edgeId }`, por id estável), `mode` (`select | add-vertex | connect`; só
+guarda o modo, o que cada um faz com um toque é do detector de gestos), `history` (`{ past, future, limit }` de
+`EditorSnapshot = { graph, layout }`) e `error?`. A câmera, a seleção, o modo e o erro **não** entram nos instantâneos.
+`createEditorState({ graph, layout?, historyLimit?, mode? })` monta o estado inicial e reconcilia o layout (ausente, de
+outro grafo ou incompleto).
+
+**Resultado da transição** (sem campo extra): *aplicada* (estado novo, sem `error`); *sem efeito* (o **mesmo** objeto
+`state`, nada no histórico); *recusada* (estado novo só com `error`: grafo, layout, `history` e contadores são os mesmos
+objetos; o erro do domínio vem intacto em `error.error`). `EditorError`: `GRAPH_ERROR { error: GraphError }`,
+`INVALID_POSITION`, `NOTHING_SELECTED`, `INVALID_MODE`. Qualquer ação **aplicada** limpa o erro anterior; ação sem efeito
+não; desfazer e refazer nunca o restauram.
+
+| Ação | Payload | Efeito | Histórico | Recusas |
+| --- | --- | --- | --- | --- |
+| `add-vertex` | `position` (mundo), `label?` | `addVertex` (rótulo automático se omitido) + `placeVertex`, atômico | sim | `INVALID_POSITION`, rótulo inválido |
+| `connect` | `source`, `target`, `weight?` | `addEdge`; layout intacto; arcos opostos valem em grafo orientado | sim | vértice inexistente, laço, peso inválido, aresta repetida |
+| `remove-selection` | — | `removeVertex` (leva as arestas incidentes) + `removePosition`, ou `removeEdge`; seleção limpa | sim | `NOTHING_SELECTED` |
+| `set-label` | `vertexId`, `label` | `setVertexLabel` | só se mudou | vértice inexistente, rótulo inválido |
+| `set-weight` | `edgeId`, `weight \| undefined` | `setEdgeWeight` (`undefined` remove; `0` é peso) | só se mudou | aresta inexistente, peso inválido |
+| `move-vertex` | `vertexId`, `position` | `moveVertex`: a posição **final** (um passo) | só se mudou | vértice inexistente, `INVALID_POSITION` |
+| `select` / `clear-selection` | `selection` | só a seleção; confere que o elemento existe | não | vértice ou aresta inexistente |
+| `set-mode` | `mode` | só o modo | não | `INVALID_MODE` |
+| `undo` / `redo` | — | restaura o instantâneo; seleção por id, limpa se o elemento sumiu | (move entre `past` e `future`) | — (sem efeito se vazio) |
+| `clear-error` | — | remove o erro | não | — |
+
+Validação em ordem, como no domínio: o elemento existe → o valor é válido; ao adicionar, a posição vem antes do rótulo. Só
+`undefined` significa "rótulo omitido" (`null` e texto vazio são recusados pelo domínio). O arrasto contínuo **não** passa
+por `move-vertex`: a posição transitória vive fora do layout e só a final é confirmada (etapa 3.9).
+
+**Histórico.** Entra um instantâneo (o estado de antes) por operação que **muda** o grafo ou o layout. Recusadas, sem efeito,
+seleção, modo e limpar erro não entram. Desfazer move o estado atual para `future` e restaura o último de `past`; refazer é o
+inverso; uma operação nova **descarta** `future`; com `past` vazio, desfazer não faz nada (idem refazer). O limite é
+`historyLimit` (padrão **100**, `1 ≤ limite ≤ 1000`, inválido vale o padrão; passando dele, o mais antigo é esquecido) e é uma
+**política inicial**, não uma garantia de consumo em aparelhos modestos. Instantâneos não são alterados por operações
+posteriores.
+
+**Papel do Zustand** (`editor-store.ts`, `zustand/vanilla`): `createEditorStore(options)` devolve **uma store por sessão**
+(sem singleton escondido) com `{ editor, dispatch, reset }`. `dispatch(action)` chama `applyAction` e só grava (`set`) se a
+transição trouxe um estado diferente: o Zustand notifica os assinantes a **cada** `setState`, mesmo com o mesmo conteúdo, por
+isso a guarda é da store. Ação aplicada e ação recusada (o erro mudou) notificam; ação sem efeito não notifica ninguém.
+`reset(options)` começa uma sessão nova (outro grafo, histórico vazio). Os seletores (`selectGraph`, `selectLayout`,
+`selectSelection`, `selectMode`, `selectError`, `selectCanUndo`, `selectCanRedo`) devolvem referências estáveis ou
+primitivos. A ligação ao React vem com o primeiro componente (3.5): `useStore(store, seletor)`, sem mudar a store nem o
+núcleo. A store **não duplica regra**: um teste confere que ela só importa `zustand/vanilla` e o núcleo e que não nomeia
+nenhuma operação do domínio, do layout ou do histórico.
+
+**Mensagens.** `graphErrorMessage(error): string` e `editorErrorMessage(error): string` (`core/error-messages.ts`) dão um
+texto em português para **cada** código de erro do domínio (o compilador exige a cobertura) e do editor. O texto sai do código
+e de campos limitados; **nada do que o aluno digitou nem do documento lido é copiado** para a mensagem, e ids técnicos não
+aparecem. O erro estruturado continua sendo o que os testes e o diagnóstico leem.
+
+**Complexidade** (V vértices, E arestas, L = limite do histórico, ≤ 1000):
+
+| Operação | Tempo | Observação |
+| --- | --- | --- |
+| adicionar vértice | Θ(V) | conjunto de rótulos usados (`nextFreeLabel`), vetor de vértices copiado pelo domínio, cópia do layout |
+| conectar / peso | Θ(E) | `addEdge` confere a repetição e copia o vetor de arestas |
+| remover vértice | Θ(V + E) | |
+| rótulo / mover | Θ(V) | mover copia o layout; os pontos e o `Graph` são reaproveitados |
+| selecionar, modo, limpar erro | O(1) | selecionar confere que o elemento existe: O(V) ou O(E) |
+| registrar no histórico | Θ(L) | cópia do vetor `past` |
+| desfazer / refazer | Θ(L + V + E) | cópia dos vetores e conferência da seleção |
+
+**Memória.** Os instantâneos compartilham os vértices, arestas e posições (objetos imutáveis), mas cada atualização do grafo
+cria vetores novos, então o histórico ocupa Θ(L · (V + E)) **referências** no pior caso: não é um valor constante ao longo do
+histórico. Nada é copiado em profundidade, e não há compressão de histórico.
+
+**Limitações conhecidas.** O desfazer não restaura seleção, modo nem câmera (de propósito). Sem agrupamento de edições
+seguidas (cada rótulo ou peso é um passo). O limite de 100 passos é provisório. O histórico não é persistido (começa vazio ao
+abrir um documento). O modo `connect` ainda não guarda a origem pendente (3.7). A sequência de rótulos A, B, …, AA repete a
+lógica privada `defaultLabel` do domínio (que não é exportada e não foi alterada). Um `Graph` restaurado pode ser uma cópia
+rasa nova (só quando o contador sobe), então comparar por referência não vale; compare por conteúdo.
 
 ### Interação por toque (arquitetura; só o hit-testing está implementado, no 3.3)
 
@@ -1314,6 +1403,29 @@ descartada: o repositório não tem nenhum editor nem tela falsa.
   (devolve exatamente `to`); o melhor inicial infinito da poligonal (o primeiro segmento já cobre o ponto inicial); e o filtro
   de posição não finita nos vértices (um centro `NaN` dá distância `NaN`, que `!(d <= alcance)` descarta). Os testes de
   mutação também mostraram que `-0` só nasce de entrada com `-0` (`quadraticPoint`), pois somas de opostos dão `+0`.
+- **Núcleo de edição** (`core/editor.test.ts`, projeto `editor-core`, Node; 103 testes, mais 17 em `core/error-messages.test.ts`):
+  estado inicial (layout reconciliado, limite do histórico 1 a 1000 e inválidos, modos); **política de rótulos** (lacunas,
+  rótulos do aluno e minúsculas, de Z para AA e de AZ para BA, até `AAA`; **A, B, C → desfazer C → novo vértice `v4` com o
+  rótulo `C`**, e o contador do domínio daria `D`); cada ação com suas recusas e a prioridade das validações; atomicidade (posição
+  inválida ou rótulo inválido não mudam grafo nem layout e **não consomem id**); remoção de vértice com arestas incidentes
+  (orientado e não orientado) e da posição; **arcos opostos** só em grafo orientado; histórico (desfazer e refazer uma e várias
+  operações, vazio, limite de 100, 3 e 1, ramo futuro descartado por qualquer edição, **contadores de vértice e de aresta
+  separados e monotônicos**, refazer com o **mesmo id**, instantâneos intactos, erro e modo fora do histórico, seleção limpa
+  quando o elemento some); e **250 passos × 30 sementes contra um modelo de referência independente** (listas simples, outro
+  gerador de rótulos, sem usar o domínio nem o editor) com recusas intercaladas: cada transição bate com o modelo (mesmo
+  veredito, mesmo motivo da recusa, mesmo conteúdo, contadores, seleção e tamanhos do histórico), as invariantes são conferidas do
+  zero a cada passo (ids canônicos e únicos, contadores acima dos ids, arestas válidas, **layout com exatamente uma posição por
+  vértice e nenhuma órfã**, seleção existente, instantâneos com contadores nunca acima dos atuais) e `redo(undo(s))` devolve o mesmo grafo e
+  layout. **Store** (`graph-editor/editor-store.test.ts`, projeto `app`; 21 testes, sem renderizar componente): estado inicial,
+  `dispatch` igual a `applyAction`, recusa com erro estruturado, **nenhuma notificação em ação sem efeito**, seletores estáveis,
+  `reset` com outro grafo, e um teste de arquitetura (a store só importa `zustand/vanilla` e o núcleo e não nomeia nenhuma operação
+  do domínio). Em **mutação dirigida** (84 mutações: 60 de `editor.ts`, 13 de `editor-store.ts` e 11 de `error-messages.ts`: ids
+  reutilizados, contadores que regridem (vértice e aresta, `min` no lugar de `max`), refazer sem restaurar o id, histórico criado por
+  ação recusada ou sem efeito, movimentação não registrada, seleção que aponta para elemento removido, layout e grafo divergentes,
+  rótulo automático errado, ramo futuro não descartado, limite ignorado ou com erro de um, store que notifica a mais ou a menos,
+  que altera regra ou que devolve a transição errada) 83 foram detectadas (a `selectCanUndo` só depois de reforçar o teste, que
+  nunca a via falsa). A que sobrou é **equivalente**: refazer sem o piso dos contadores, porque o ramo `future` já carrega o
+  piso (a guarda fica por simetria e custa O(1)).
 - **Ambiente de testes das bibliotecas do editor** (`graph-editor/native-stack.test.tsx`, projeto `app`): SVG
   (`Svg`, `G`, `Line`, `Circle`, `Text`) renderiza com suas propriedades; toque e arrasto simulados por
   `createGestureController` atualizam a tela; um componente com valor compartilhado e estilo animado monta. Não testa o

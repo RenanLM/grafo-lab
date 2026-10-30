@@ -130,10 +130,10 @@ estão em `ARCHITECTURE.md`):
 A etapa 3.4B registrou a tabela comparativa e as medições em `ARCHITECTURE.md`; limites de tamanho para a interface
 só depois de medir em Hermes e em Android com poucos recursos (tarefa 4.6).
 
-## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 a 3.3 concluídos; os demais aguardam autorização)
+## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 a 3.4 concluídos; os demais aguardam autorização)
 
-Só os incrementos 3.0 (infraestrutura), 3.1 (câmera pura), 3.2 (`GraphLayout` puro) e 3.3 (geometria das arestas e
-hit-testing puros) foram feitos; **não há editor**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
+Só os incrementos 3.0 (infraestrutura), 3.1 (câmera pura), 3.2 (`GraphLayout` puro), 3.3 (geometria das arestas e
+hit-testing puros) e 3.4 (núcleo de edição, histórico e store Zustand) foram feitos; **não há editor visual**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
 quando houver regra nova e uma mensagem de commit. Tamanhos: **S** (um módulo puro e seus testes) e **M** (lógica +
 interface). Ordem como no prompt mestre: renderizar, criar, conectar, selecionar; **depois** arrastar, deslocar e
 ampliar, em incrementos separados.
@@ -191,7 +191,7 @@ ampliar, em incrementos separados.
 
 - ✅ **3.0 Dependências e infraestrutura** (S). Instalados com `npx expo install` (versões da SDK 58, sem alterar
   nada além disso): `react-native-svg` 15.16.0, `react-native-gesture-handler` 3.3.0, `react-native-reanimated` 4.7.1 e
-  `react-native-worklets` 0.13.0. **`zustand` não foi instalado** (só tem uso no 3.4). `GestureHandlerRootView` no
+  `react-native-worklets` 0.13.0. **`zustand` não foi instalado no 3.0** (entrou no 3.4, versão 5.0.16). `GestureHandlerRootView` no
   layout raiz; ESLint e projeto Jest `editor-core` para `src/features/graph-editor/core`; ambiente de testes de SVG,
   gestos e Reanimated (resolver, `jestSetup`, mock de `getUIRuntimeHolder`, `testTimeout` de 30 s por causa do cache
   frio); especificação do `GraphLayout`; **correção da decisão de IDs e histórico**; achado sobre gestos em SVG. Versões
@@ -294,17 +294,42 @@ ampliar, em incrementos separados.
     converte com `worldToScreen`; para enquadrar, expande os limites de `boundsOf` pelo raio visual.
   - *Commit:* `feat(editor): add edge geometry and hit testing`
 
-- ⬜ **3.4 Núcleo do editor, histórico e store** (M). `applyAction(estado, ação) → { estado, erro? }` puro (adicionar
-  vértice em ponto, conectar, remover seleção, rótulo, peso, mover, desfazer, refazer, mudar modo, selecionar) sobre
-  `{ graph, layout, selection, mode, history }`; `Result` do domínio nunca é descartado (o erro vai para o estado);
-  módulo `GraphError → mensagem em português`; store Zustand fina em volta.
-  - *Aceite:* desfazer seguido de refazer devolve exatamente o mesmo estado; ação inválida não consome id, não entra
-    no histórico e informa o erro; remover vértice limpa seleção e posição; **os contadores nunca recuam** (desfazer uma
-    criação não libera o id; refazer restaura o mesmo id; operação nova depois de desfazer descarta o refazer;
-    `redo(undo(s))` é exatamente `s`); decidir o rótulo padrão depois de desfazer (A, B, D × menor rótulo livre).
-  - *Testes:* sequências determinísticas contra um modelo de referência independente (como na suíte cruzada), erros
-    mapeados um a um, invariantes (ids únicos, layout ⊆ vértices) após cada passo; a store testada só pelo contrato.
-  - *Commit:* `feat(editor): add editor core, undo history and store`
+- ✅ **3.4 Núcleo do editor, histórico e store** (M; só TypeScript puro e Zustand; sem telas, SVG, gestos nem animação).
+  Dois blocos internos, cada um terminado com `npm run check`.
+  - *3.4A, núcleo puro* (`core/editor.ts`, `core/error-messages.ts`): `applyAction(estado, ação) → { state, error? }` sobre
+    `{ graph, layout, selection, mode, history, error? }`. Ações: `add-vertex`, `connect`, `remove-selection`, `set-label`,
+    `set-weight` (`undefined` remove), `move-vertex` (posição **final**, um passo), `select`, `clear-selection`, `set-mode`
+    (`select | add-vertex | connect`), `undo`, `redo`, `clear-error`. Três resultados sem campo extra: **aplicada**, **sem
+    efeito** (o mesmo objeto de estado, nada no histórico) e **recusada** (só o `error` muda; o erro do domínio vem intacto
+    em `error.error`; grafo, layout, histórico e contadores são os mesmos objetos). Adicionar vértice é **atômico**
+    (`addVertex` + `placeVertex`) e uma recusa não consome id. `graphErrorMessage` e `editorErrorMessage` dão texto em
+    português para cada código, sem copiar o que o aluno digitou nem mostrar ids.
+  - *Política de rótulos:* sem rótulo informado, o **menor** de A, B, …, Z, AA, AB, … que nenhum vértice usa é passado
+    explicitamente a `addVertex`: A, B, C → desfazer C → novo vértice **`v4` com o rótulo `C`** (o contador do domínio
+    daria `D`; o domínio não mudou). Rótulo se reaproveita, id nunca; rótulos do aluno contam como usados e duplicados
+    informados continuam permitidos.
+  - *Histórico e contadores:* instantâneos `{ graph, layout }` só; entra um por operação que **muda** grafo ou layout
+    (recusadas, sem efeito, seleção, modo e limpar erro não entram); nova operação **descarta** o refazer; limite padrão
+    **100** (configurável de 1 a 1000, inválido vale o padrão). Ao desfazer ou refazer, o grafo restaurado recebe **o
+    maior de cada contador** (`nextVertexSeq`, `nextEdgeSeq`, independentes) entre o do instantâneo e o do estado atual:
+    refazer devolve a mesma entidade com o mesmo id, e uma operação nova depois de desfazer emite um id novo, acima de todos
+    os já emitidos. Uma cópia rasa de objeto comum; o domínio não mudou. A seleção é por id e é limpa se o elemento sumiu; o
+    erro transitório não é restaurado.
+  - *3.4B, Zustand* (`graph-editor/editor-store.ts`, **`zustand` 5.0.16**, `npx expo install zustand`):
+    `createEditorStore(options)` (`zustand/vanilla`, uma store por sessão) com `{ editor, dispatch, reset }` e seletores;
+    `dispatch` delega a `applyAction` e só grava se o estado mudou (o Zustand notifica a cada `setState`, então a guarda é da
+    store). Sem regra duplicada, sem React, SVG, Gesture Handler nem Reanimated; o hook (`useStore`) vem com o 3.5.
+  - *Complexidade:* adicionar vértice Θ(V), conectar Θ(E), remover Θ(V + E), rótulo e mover Θ(V), registrar Θ(L),
+    desfazer e refazer Θ(L + V + E) (L = limite). Os instantâneos compartilham objetos imutáveis, mas o histórico ocupa
+    Θ(L · (V + E)) referências no pior caso, não um valor constante; 100 passos é política inicial, não garantia de memória.
+  - *Limitações:* o desfazer não restaura seleção, modo nem câmera; sem agrupar edições seguidas; histórico não persistido;
+    o modo `connect` ainda não guarda a origem pendente (3.7); o arrasto contínuo não passa por `move-vertex`.
+  - *Testes:* 141 novos (103 do núcleo, 17 das mensagens e 21 da store); total do projeto **1779**. Núcleo conferido contra um
+    modelo de referência independente (250 passos × 30 sementes, com recusas intercaladas e as invariantes a cada passo).
+    Mutação dirigida: 84 mutações, 83 detectadas e 1 **equivalente** (refazer sem o piso dos contadores, que o `future` já
+    carrega). Detalhes em `ARCHITECTURE.md`, "Núcleo de edição e store".
+  - *Commits sugeridos:* `feat(editor): add editor core, undo history and error messages` e
+    `feat(editor): add zustand editor store`
 
 - ⬜ **3.5 Renderizador SVG somente leitura** (M). `GraphRenderer` e `SvgGraphRenderer`: vértices (círculo + rótulo),
   arestas, setas, pesos (**ausente ≠ 0**), cores só por tokens (claro/escuro); botão "Carregar exemplo" no Laboratório
