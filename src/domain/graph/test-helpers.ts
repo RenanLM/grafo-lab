@@ -31,6 +31,50 @@ export function connect(graph: Graph, source: string, target: string, weight?: n
   return deepFreeze(must(addEdge(graph, { source, target, weight })).graph);
 }
 
+/** Gerador pseudoaleatório determinístico (mulberry32): a mesma semente repete a mesma sequência. */
+export function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const WEIGHTS = [undefined, 0, -3, 2.5, 7];
+
+/**
+ * Grafo simples, congelado e reproduzível (mesma semente → mesmo grafo): 0 a `maxVertices` vértices,
+ * densidade aleatória, arestas criadas em ordem embaralhada (e, no não orientado, com extremos em ordem
+ * aleatória) e pesos entre ausente, zero, negativo e positivos.
+ */
+export function randomGraph(seed: number, directed: boolean, maxVertices = 9): Graph {
+  const random = seededRandom(seed);
+  const count = Math.floor(random() * (maxVertices + 1));
+
+  const pairs: [string, string][] = [];
+  for (let i = 1; i <= count; i++) {
+    for (let j = 1; j <= count; j++) {
+      if (i === j || (!directed && i > j)) continue;
+      pairs.push(!directed && random() < 0.5 ? [`v${j}`, `v${i}`] : [`v${i}`, `v${j}`]);
+    }
+  }
+  for (let i = pairs.length - 1; i > 0; i--) {
+    const k = Math.floor(random() * (i + 1));
+    [pairs[i], pairs[k]] = [pairs[k]!, pairs[i]!];
+  }
+
+  const density = random();
+  let graph = withVertices(count, directed);
+  for (const [source, target] of pairs) {
+    if (random() >= density) continue;
+    graph = connect(graph, source, target, WEIGHTS[Math.floor(random() * WEIGHTS.length)]);
+  }
+  return graph;
+}
+
 /** Grafo congelado com `count` vértices (v1..vN) e as arestas criadas na ordem dada. */
 export function graphOf(
   count: number,

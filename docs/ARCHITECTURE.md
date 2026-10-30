@@ -56,7 +56,7 @@ src/
   components/          UI compartilhada: Screen, Text, Card, Badge, EmptyState, GraphGlyph, ActionCard
   features/            telas e conteúdo por assunto (home, lessons, graph-editor, challenges)
   theme/               tokens (cores claro/escuro, espaçamento, tipografia) e useTheme
-  domain/graph/        modelo do grafo (Fase 2): types, errors, graph (operações), queries (grau e vizinhança), index (API pública)
+  domain/graph/        modelo do grafo (Fase 2): types, errors, graph (operações), queries (grau e vizinhança), adjacency (representações), index (API pública)
   domain/              algoritmos e simulação entram nas fases seguintes
   storage/             (Fase 5+) SQLite e migrações
 docs/                  ROADMAP, ARCHITECTURE, REFERENCIAS
@@ -108,6 +108,21 @@ Pastas são criadas só quando necessárias.
      `successors` = `predecessors` = `neighbors` e `inDegree` = `outDegree` = `degree` (assim BFS/DFS usam
      `successors` para os dois tipos). Em grafo orientado, `neighbors` = sucessores ∪ predecessores sem repetir,
      então `degree` pode superar `neighbors.length` (os arcos u→v e v→u contam 2 no grau e 1 na vizinhança).
+   - **Lista de adjacência** (`adjacencyList`, em `adjacency.ts`): derivada do `Graph`, sem estado próprio (regerar
+     depois de editar). Uma linha por vértice, inclusive isolados, na ordem dos vértices; entradas
+     `{ vertexId, edgeId, weight? }` em que `vertexId` é o **outro extremo**, também na ordem dos vértices (a mesma de
+     `successors`). Orientado: só arcos de saída. Não orientado: a aresta aparece nas duas linhas, com o mesmo
+     `edgeId` e peso. O peso é copiado sem conversão: ausente, `0` e negativo permanecem distintos e **sem peso nunca
+     vira 1**.
+     - *Algoritmo:* `Map` id → posição; um balde por vértice recebe os arcos que chegam a ele; ler os baldes em
+       ordem crescente e distribuir para as linhas entrega cada linha já ordenada (*counting sort*), sem ordenação
+       por comparação.
+     - *Tempo:* Θ(V + E) (a busca no `Map` é O(1) esperada, não de pior caso). *Espaço:* Θ(V + E) na saída (V linhas
+       e A entradas, com A = E se orientado e 2E se não orientado) mais Θ(V + A) auxiliar e temporário.
+     - *Uso:* vizinhos de uma linha em O(grau); achar a linha de um id exige um índice do consumidor.
+     - *Medição pontual* (30/10/2026, Node 24.12, i5-11400H, dentro do Jest, E ≈ 4V, até 320 mil vértices): dobrar V
+       e E multiplicou o tempo por 2,0 a 2,6, o que é coerente com crescimento quase linear e longe do quadrático.
+       Não é garantia nem limite de produto.
    - **Imutável**, com ordem de inserção preservada (desempate estável para os algoritmos). Buscas por ID são
      lineares, adequadas ao tamanho dos grafos didáticos; algoritmos montam suas próprias estruturas (O(V+E)).
 8. **Renderização (Fase 3):** SVG atrás de interface `GraphRenderer`, para trocar por Skia depois.

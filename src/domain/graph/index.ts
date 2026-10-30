@@ -1,3 +1,9 @@
+export {
+  adjacencyList,
+  type AdjacencyEntry,
+  type AdjacencyList,
+  type AdjacencyRow,
+} from './adjacency';
 export { fail, ok, type GraphError, type InvalidLabelReason, type Result } from './errors';
 export {
   addEdge,

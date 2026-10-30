@@ -50,7 +50,7 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
   - ✅ Parte B: `setVertexLabel` (trim, 1 a 64 pontos de código, repetidos permitidos) e `setEdgeWeight` (`undefined` remove, `0` é peso).
 - 🔄 2.3 **Incremento 3 — representações** (um commit por etapa; cada etapa só começa com autorização):
   - ✅ 3.0 `addVertex` devolve `Result` e valida o rótulo pelas mesmas regras do `setVertexLabel` (`null` não conta como "omitido").
-  - ⬜ 3.1 **Lista de adjacência** (`adjacency.ts`): uma linha por vértice, na ordem dos vértices; entradas
+  - ✅ 3.1 **Lista de adjacência** (`adjacency.ts`): uma linha por vértice, na ordem dos vértices; entradas
     `{ vertexId, edgeId, weight? }` na ordem de `successors`. Orientado: só arcos de saída. Não orientado: cada
     aresta aparece nas duas pontas.
   - ⬜ 3.2 **Matriz de adjacência** (`adjacency.ts`): `{ vertexIds, cells }`, com `cells[i][j]` = `null` (sem aresta)
