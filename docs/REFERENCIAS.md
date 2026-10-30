@@ -1,0 +1,41 @@
+# Referências bibliográficas
+
+Estado verificado em 30/10/2026. **Nenhuma citação com página foi atribuída ainda.** Regra do projeto:
+só citar capítulo/seção depois de abrir o trecho no PDF; nada é copiado (texto, exercícios, figuras).
+Todo o material didático do app é original. Os PDFs ficam apenas na máquina local (`/*.pdf` no `.gitignore`).
+
+## Boaventura Netto & Jurkiewicz — *Grafos: Introdução e Prática* (Blucher, 2009)
+
+- Arquivo de 172 páginas, **digitalizado como imagem, sem camada de texto**; não há busca nem extração
+  automática (nem OCR instalado). Consulta é visual, página a página.
+- O sumário (numeração romana ix–x) foi conferido visualmente e cobre toda a ementa:
+
+| Cap. | Título | Seções relevantes para a ementa |
+| --- | --- | --- |
+| 1 | Primeiras ideias | 1.1 histórico · 1.2 o modelo · 1.3 modelos de grafo · 1.4 matemática discreta, computação e algoritmos |
+| 2 | Conceitos básicos de grafos | 2.1 rotulação e representação · 2.2 conceitos importantes · 2.3 grafos especiais · 2.4 conexidade · 2.5 conectividade |
+| 3 | Problemas de caminhos | 3.1 caminho mínimo · 3.2 algoritmos para caminhos mínimos · 3.3 localização · 3.4 caminho máximo |
+| 4 | Problemas de interligação | 4.1 árvores e arborescências · 4.2 árvores e interligação · 4.3 árvore parcial de custo mínimo · 4.4 algoritmos gulosos · 4.5 complexidade |
+| 5 | Subconjuntos especiais | 5.4 acoplamentos · 5.5 alocação linear, algoritmo húngaro |
+| 6 | Problemas de coloração | 6.1 coloração de vértices · 6.2 coloração de arestas |
+| 7 | Fluxos em grafos | 7.6 fluxo máximo · 7.7 teorema de Ford e Fulkerson · 7.8 grafo de aumento de fluxo |
+| 8 | Ciclos e aplicações | 8.1 eulerianos não orientados · 8.3 eulerianos orientados · 8.5 hamiltonianos |
+| 9 | Grafos planares | 9.1 definições · 9.2 teorema de Kuratowski · 9.4 problema das 4 cores |
+
+- BFS e DFS **não aparecem como títulos de seção** no sumário; não atribuir a um capítulo sem localizar o trecho.
+- Offset entre numeração impressa e página do PDF ainda não calibrado (a calibrar na primeira citação).
+
+## Cormen, Leiserson, Rivest, Stein — *Algoritmos: Teoria e Prática* (2ª ed., trad. Campus/Elsevier)
+
+- Arquivo de 239 páginas com camada de texto, mas é um **extrato**: Parte I (cap. 1–5), Parte II (cap. 6–9),
+  a Parte III só como página de título, e o Apêndice A–B. **Os capítulos de grafos (BFS, DFS, árvores
+  geradoras, caminhos mínimos, fluxo máximo) não estão no arquivo**; Dijkstra, Kruskal e Ford-Fulkerson
+  só aparecem no sumário completo e no índice.
+- Útil para o app: cap. 2–3 (análise de algoritmos, notação assintótica), 6.5 (filas de prioridade, base de
+  Prim/Dijkstra) e apêndice B.4 (grafos) e B.5 (árvores).
+
+## Como as referências entram no app
+
+1. Cada aula só exibe referência depois de conferida (capítulo/seção, sem transcrição).
+2. Temas sem referência acessível usam apenas a ementa e ficam sem citação.
+3. Conteúdo teórico sem simulador é marcado como **conteúdo teórico**.
