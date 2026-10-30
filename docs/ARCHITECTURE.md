@@ -56,7 +56,7 @@ src/
   components/          UI compartilhada: Screen, Text, Card, Badge, EmptyState, GraphGlyph, ActionCard
   features/            telas e conteúdo por assunto (home, lessons, graph-editor, challenges)
   theme/               tokens (cores claro/escuro, espaçamento, tipografia) e useTheme
-  domain/graph/        modelo do grafo (Fase 2): types, errors, graph (operações), queries (grau e vizinhança), adjacency, adjacency-matrix e incidence (representações), index (API pública)
+  domain/graph/        modelo do grafo (Fase 2): types, errors, graph (operações), queries (grau e vizinhança), adjacency, adjacency-matrix, incidence e incidence-list (representações), index (API pública)
   domain/              algoritmos e simulação entram nas fases seguintes
   storage/             (Fase 5+) SQLite e migrações
 docs/                  ROADMAP, ARCHITECTURE, REFERENCIAS
@@ -177,6 +177,25 @@ Pastas são criadas só quando necessárias.
        no esparso (E ≈ 4V) e ≈ 124× no K250 (E/V = (V−1)/2). Esses números **NÃO definem o limite do aplicativo**
        (Node/V8 num PC, não Hermes nem Android modesto): a interface deve decidir se exibe a matriz completa pelo
        produto V·E e calculá-la sob demanda (ver ROADMAP, Fase 4).
+   - **Lista de incidência** (`incidenceList`, em `incidence-list.ts`): `{ vertexIds, rows }`, em que `rows[i]` lista as
+     **arestas** incidentes a `vertexIds[i]` como `{ edgeId, oppositeVertexId, role, weight? }`. Não é a lista de
+     adjacência: lá cada entrada é o vizinho e a ordem segue os vértices; aqui o objeto é a aresta, o vizinho é só
+     um atributo (`oppositeVertexId`, o **outro** extremo) e a ordem segue a **inserção das arestas**, a mesma das
+     colunas da matriz de incidência. Linhas na ordem dos vértices, inclusive os isolados (linha vazia).
+     - *Papéis:* orientado → `outgoing` na origem e `incoming` no destino (+1 e −1 na matriz de incidência, segundo
+       a convenção do livro-texto, §2.1, p. 20); não orientado → `undirected` nos dois extremos (+1 nos dois).
+     - Cada aresta aparece **exatamente uma vez em cada extremo** (2E entradas; o modelo não tem laços). Arcos
+       opostos têm `edgeId` próprio e aparecem nas duas linhas com papéis complementares. O peso é copiado sem
+       conversão (ausente, zero e negativo ficam distintos; **sem peso nunca vira 1**) e é o mesmo nos dois
+       extremos. As duas entradas de uma aresta são objetos independentes e cada linha é um array próprio.
+     - *Construção:* Θ(V + E) em tempo (`Map` de posições Θ(V), **uma única passada** pelas arestas com duas
+       inserções O(1) cada; a busca no `Map` é O(1) esperada) e Θ(V + E) em espaço (V linhas, 2E entradas e o `Map`
+       auxiliar Θ(V)). Não há ordenação: ler as arestas em ordem de inserção já deixa cada linha ordenada.
+     - *Consulta:* as incidências de um vértice em O(d(v)) depois de localizar a linha (`indexOf` é O(V); um `Map`
+       do consumidor dá O(1)); existência de (u,v) em O(d(u)).
+     - *Consistência:* a lista e a matriz de incidência descrevem exatamente as mesmas incidências, na mesma ordem
+       (testado localmente, inclusive com arcos opostos); a suíte cruzada completa das quatro representações é a
+       etapa 3.4B.
    - **Imutável**, com ordem de inserção preservada (desempate estável para os algoritmos). Buscas por ID são
      lineares, adequadas ao tamanho dos grafos didáticos; algoritmos montam suas próprias estruturas (O(V+E)).
 8. **Renderização (Fase 3):** SVG atrás de interface `GraphRenderer`, para trocar por Skia depois.

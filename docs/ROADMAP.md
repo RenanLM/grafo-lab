@@ -64,8 +64,31 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
     não orientado: +1 nas duas pontas; as demais células valem 0; sem pesos. Fonte conferida: Boaventura &
     Jurkiewicz, §2.1, p. 20 (ver `REFERENCIAS.md`). Identidades B·Bᵀ = D + A (não orientado) e B·Bᵀ = D − (A + Aᵀ)
     (orientado) verificadas em grafos pequenos; construção Θ(V + V·E).
-  - ⬜ 3.4 **Testes cruzados** entre as três representações (grafos pseudoaleatórios de semente fixa, sem dependência
-    nova) e **análise de complexidade** (tabela abaixo) registrada em `ARCHITECTURE.md`.
+  - ✅ 3.4A **Lista de incidência** (`incidence-list.ts`): `incidenceList` devolve `{ vertexIds, rows }`; cada linha
+    lista as arestas incidentes ao vértice como `{ edgeId, oppositeVertexId, role, weight? }`, com `role` em
+    `incoming` / `outgoing` (orientado) ou `undirected`. Entradas na ordem de inserção das **arestas** (a mesma
+    ordem das colunas da matriz de incidência; difere da lista de adjacência, que ordena pelos vizinhos). Cada aresta
+    aparece uma vez em cada extremo (2E entradas); arcos opostos têm `edgeId` próprio; peso sem conversão (ausente,
+    zero e negativo). Construção Θ(V + E), uma passada pelas arestas e sem ordenação. Consistência com
+    `incidenceMatrix` testada localmente (+1 ↔ `outgoing`/`undirected`, −1 ↔ `incoming`).
+  - ⬜ 3.4B **Testes cruzados e consolidação das quatro representações** (lista de adjacência, matriz de
+    adjacência, matriz de incidência e lista de incidência). Só começa com autorização. Planejado:
+    - suíte `representations.test.ts` com grafos pseudoaleatórios de **sementes fixas**, comparando resultados
+      **estruturais**, independentes dos rótulos;
+    - **reconstrução de arestas** (id, extremos, sentido) a partir de cada representação, comparada com o grafo e
+      entre as quatro;
+    - **pesos** validados onde a representação os contém (as duas listas e a matriz de adjacência); a matriz de
+      incidência **não** precisa conter pesos;
+    - **invariantes** cruzadas: contagens (entradas, células ocupadas, 2E), graus, identidades B·Bᵀ e a
+      correspondência incidências ↔ células ↔ entradas, com mesma ordem de vértices e de arestas;
+    - **sequências determinísticas de operações válidas e inválidas** (semente fixa), regenerando as quatro
+      representações a cada passo e conferindo a consistência depois das edições; operação inválida não altera nada;
+    - independência de objetos (sem aliasing entre as quatro nem com o grafo);
+    - **mutação aplicada só à suíte cruzada**;
+    - medição consolidada em **processos isolados** (um por estrutura, para evitar o artefato de coleta de lixo) e
+      tabela comparativa final em `ARCHITECTURE.md`;
+    - extrair o helper que copia o peso (`entryFor` / `cellFor` / lista de incidência) **somente se** reduzir
+      duplicação relevante.
 - ⬜ 2.4 **Incremento 4:** `serializeGraph` e `parseGraph(unknown)` validando todas as invariantes (inclusive a regra
   de rótulos); testes de propriedade (Σ graus = 2·|E| no não orientado; Σ entrada = Σ saída = |E| no orientado).
 - Critério: `npm test` cobre o domínio e passa sem nenhum import de React Native.
@@ -77,10 +100,11 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
 | Lista de arestas (o próprio `Graph`) | — | Θ(V + E) | O(E) | O(E) |
 | Lista de adjacência | Θ(V + E) | Θ(V + E) (2E entradas no não orientado) | O(d(v)) | O(d(u)) |
 | Matriz de adjacência | Θ(V²) | Θ(V²) (2E células ocupadas no não orientado) | O(V) | O(1) após o índice id → posição, Θ(V) |
+| Lista de incidência | Θ(V + E) | Θ(V + E) (2E entradas) | O(d(v)) | O(d(u)) (varrer as incidências de u) |
 | Matriz de incidência | Θ(V + V·E) (Θ(V·E) se E ≥ 1) | Θ(V + V·E) (só 2E células não nulas) | O(E + d(v) · V) (a linha dá as arestas; cada coluna dá a outra ponta) | O(E) (comparar as linhas de u e v) |
 
-A etapa 3.4 confirma esses custos no código e na tabela de `ARCHITECTURE.md`; limites de tamanho para a interface só
-depois de medir.
+A etapa 3.4B confirma esses custos no código e na tabela de `ARCHITECTURE.md`; limites de tamanho para a interface
+só depois de medir.
 
 ## Fase 3 — Canvas touch-first ⬜
 

@@ -11,6 +11,12 @@ export {
   type AdjacencyList,
   type AdjacencyRow,
 } from './adjacency';
+export {
+  incidenceList,
+  type IncidenceList,
+  type IncidenceListEntry,
+  type IncidenceRole,
+} from './incidence-list';
 export { incidenceMatrix, type IncidenceMatrix, type IncidenceValue } from './incidence';
 export { fail, ok, type GraphError, type InvalidLabelReason, type Result } from './errors';
 export {
