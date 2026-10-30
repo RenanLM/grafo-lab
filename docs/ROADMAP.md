@@ -53,11 +53,12 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
   - ✅ 3.1 **Lista de adjacência** (`adjacency.ts`): uma linha por vértice, na ordem dos vértices; entradas
     `{ vertexId, edgeId, weight? }` na ordem de `successors`. Orientado: só arcos de saída. Não orientado: cada
     aresta aparece nas duas pontas.
-  - ⬜ 3.2 **Matriz de adjacência** (`adjacency.ts`): `{ vertexIds, cells }`, com `cells[i][j]` = `null` (sem aresta)
-    ou `{ edgeId, weight? }` (`weight` ausente = aresta sem peso; `0` = peso zero). Os três estados ficam
-    distintos e **o peso 1 nunca é gravado no modelo**. Ler a matriz como números (0/1 para grafo sem pesos, ∞ na
-    ausência para caminhos mínimos etc.) é uma função de **interpretação** à parte, com opções explícitas, que
-    não perde a informação original.
+  - ✅ 3.2 **Matriz de adjacência** (`adjacency-matrix.ts`): `adjacencyMatrix` devolve `{ vertexIds, cells }`, com
+    `cells[i][j]` = `null` (sem aresta) ou `{ edgeId, weight? }` (`weight` ausente = aresta sem peso; `0` = peso
+    zero). Os três estados ficam distintos e **o peso 1 nunca é gravado no modelo**. Células simétricas são objetos
+    independentes (sem aliasing). `adjacencyAsNumbers(matrix, { absent, unweighted })` é a **projeção numérica**:
+    opções obrigatórias (teste de tipo), não reversível, sem distância zero automática na diagonal; a matriz
+    estrutural original nunca perde informação.
   - ⬜ 3.3 **Matriz de incidência** (`incidence.ts`): `{ vertexIds, edgeIds, cells }`, vértices × arestas na ordem
     de inserção. Orientado: **+1 na origem e −1 no destino**; não orientado: 1 nas duas pontas; as demais células
     valem 0. Fonte conferida: Boaventura & Jurkiewicz, §2.1, p. 20 (ver `REFERENCIAS.md`).
@@ -100,6 +101,10 @@ Dependências desta fase (via `npx expo install`): `react-native-svg`, `react-na
 
 - ⬜ 4.1 Lista de adjacência. ⬜ 4.2 Matriz de adjacência (orientação e pesos). ⬜ 4.3 Matriz de incidência com convenção de sinais declarada.
 - ⬜ 4.4 Graus e propriedades. ⬜ 4.5 Painéis na UI (bottom sheet) sempre derivados do mesmo `Graph`.
+- ⬜ 4.6 **Matriz sob demanda e limite de tamanho:** calcular a matriz só quando o painel abrir, nunca a cada edição.
+  O limite de vértices só será fixado **depois de medir em Hermes, em dispositivos Android com poucos recursos** (as
+  medições em Node da etapa 3.2 — ≈ 8 bytes por posição, ≈ 70 MB em V = 3000 — não bastam). Evitar manter a
+  matriz estrutural e a projeção numérica na memória ao mesmo tempo.
 - Critério: editar o grafo atualiza todas as representações; testes passam.
 
 ## Fase 5 — Tutorial básico e persistência ⬜

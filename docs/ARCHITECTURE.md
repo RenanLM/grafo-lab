@@ -56,7 +56,7 @@ src/
   components/          UI compartilhada: Screen, Text, Card, Badge, EmptyState, GraphGlyph, ActionCard
   features/            telas e conteúdo por assunto (home, lessons, graph-editor, challenges)
   theme/               tokens (cores claro/escuro, espaçamento, tipografia) e useTheme
-  domain/graph/        modelo do grafo (Fase 2): types, errors, graph (operações), queries (grau e vizinhança), adjacency (representações), index (API pública)
+  domain/graph/        modelo do grafo (Fase 2): types, errors, graph (operações), queries (grau e vizinhança), adjacency e adjacency-matrix (representações), index (API pública)
   domain/              algoritmos e simulação entram nas fases seguintes
   storage/             (Fase 5+) SQLite e migrações
 docs/                  ROADMAP, ARCHITECTURE, REFERENCIAS
@@ -123,6 +123,34 @@ Pastas são criadas só quando necessárias.
      - *Medição pontual* (30/10/2026, Node 24.12, i5-11400H, dentro do Jest, E ≈ 4V, até 320 mil vértices): dobrar V
        e E multiplicou o tempo por 2,0 a 2,6, o que é coerente com crescimento quase linear e longe do quadrático.
        Não é garantia nem limite de produto.
+   - **Matriz de adjacência** (`adjacencyMatrix`, em `adjacency-matrix.ts`): `{ vertexIds, cells }`, com
+     `cells[i][j]` = `null` (sem aresta) ou `{ edgeId, weight? }`, linhas e colunas na ordem dos vértices. Três
+     estados que nunca se confundem: sem aresta (`null`), aresta sem peso (sem o campo `weight`; **nunca vira 1**) e
+     aresta com peso (`0` e negativos incluídos). Diagonal sempre `null` (só há grafos simples). Não orientado:
+     simétrica, com o mesmo `edgeId` e peso nas duas posições. Orientado: `cells[i][j]` é o arco i→j, independente
+     de `cells[j][i]`; a matriz pode ser simétrica ou assimétrica, e arcos opostos têm `edgeId` e peso próprios.
+     - *Imutabilidade:* `readonly` só vale na compilação e o domínio não congela objetos em execução; um objeto
+       compartilhado entre `cells[i][j]` e `cells[j][i]` não seria efetivamente imutável (aliasing por cast). Por
+       isso cada posição recebe um **objeto próprio** (2E objetos no não orientado) e cada linha é um array
+       próprio; um teste dedicado impede o compartilhamento.
+     - *Tempo:* Θ(V²): alocar a grade custa V² mesmo em grafo esparso; o índice custa Θ(V) e preencher as células
+       Θ(E); como num grafo simples E ≤ V², O(V² + E) = Θ(V²). *Espaço:* Θ(V²) mais Θ(E) objetos de célula.
+       *Uma célula:* O(1) depois de obter os índices dos vértices. *Vizinhos de uma linha:* O(V) (a lista dá
+       O(grau)).
+     - *Medição pontual* (30/10/2026; Node 24.12 puro com `--expose-gc`, i5-11400H, 16 GB; E ≈ 4V; V de 250 a
+       3000): ≈ 8,1 bytes por posição (V = 3000 → ≈ 70 MB de heap); ao dobrar V o tempo foi multiplicado por 2,6 a
+       5,0 (esperado ≈ 4 para Θ(V²)); a projeção numérica custa ≈ 69 MB e ≈ 118 a 121 ms em V = 3000. Para o mesmo
+       grafo esparso, a lista de adjacência ocupou ≈ 1,8 MB e levou 2,7 a 4,9 ms. **Esses números NÃO definem o
+       limite do aplicativo**: foram obtidos em Node/V8 num PC, não em Hermes nem em Android modesto. A interface
+       deve calcular a matriz sob demanda, e o limite de vértices só será fixado depois de medir em dispositivos
+       Android com poucos recursos (ver ROADMAP, Fase 4).
+   - **Projeção numérica** (`adjacencyAsNumbers(matrix, { absent, unweighted })`): lê a matriz estrutural como
+     números. As duas opções são **obrigatórias** (um teste de tipo com `@ts-expect-error` impede omiti-las):
+     `null` → `absent`, aresta sem peso → `unweighted`, aresta com peso → o próprio peso. **Não é reversível** e
+     pode perder informação: descarta o `edgeId` e junta estados quando as opções coincidem com pesos reais
+     (`absent: 0` com peso zero; `unweighted: 1` com peso 1). Não é uma "matriz binária" em geral: só contém 0 e 1
+     em grafo sem pesos com `{ absent: 0, unweighted: 1 }` (a leitura do livro-texto, p. 19). Não assume distância
+     zero na diagonal: a diagonal vale `absent`. Θ(V²) em tempo e em espaço.
    - **Imutável**, com ordem de inserção preservada (desempate estável para os algoritmos). Buscas por ID são
      lineares, adequadas ao tamanho dos grafos didáticos; algoritmos montam suas próprias estruturas (O(V+E)).
 8. **Renderização (Fase 3):** SVG atrás de interface `GraphRenderer`, para trocar por Skia depois.

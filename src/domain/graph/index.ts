@@ -1,4 +1,11 @@
 export {
+  adjacencyAsNumbers,
+  adjacencyMatrix,
+  type AdjacencyCell,
+  type AdjacencyMatrix,
+  type AdjacencyNumericOptions,
+} from './adjacency-matrix';
+export {
   adjacencyList,
   type AdjacencyEntry,
   type AdjacencyList,

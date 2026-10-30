@@ -86,3 +86,48 @@ export function graphOf(
     withVertices(count, directed),
   );
 }
+
+// Grafos de referência compartilhados pelos testes das representações. As arestas são criadas de propósito
+// FORA da ordem dos vértices, para provar que os resultados seguem a ordem dos vértices.
+
+/** Não orientado: triângulo v1-v2-v3, haste v3-v4 e v5 isolado. Arestas: e1 v3-v4, e2 v3-v1, e3 v3-v2, e4 v2-v1. */
+export const triangleWithTail = graphOf(5, [
+  ['v3', 'v4'],
+  ['v3', 'v1'],
+  ['v3', 'v2'],
+  ['v2', 'v1'],
+]);
+
+/**
+ * Orientado, 6 vértices (v5 isolado). Arcos: e1 v4→v1, e2 v3→v1, e3 v1→v3, e4 v2→v3, e5 v1→v2, e6 v3→v6.
+ * Há arcos opostos (v1→v3 e v3→v1), uma fonte (v4) e um sorvedouro (v6).
+ */
+export const digraphWithOpposites = graphOf(
+  6,
+  [
+    ['v4', 'v1'],
+    ['v3', 'v1'],
+    ['v1', 'v3'],
+    ['v2', 'v3'],
+    ['v1', 'v2'],
+    ['v3', 'v6'],
+  ],
+  true,
+);
+
+/** Não orientado com os três estados de peso: e1 v1-v2 sem peso, e2 v2-v3 peso 0, e3 v3-v4 peso −2,5, e4 v1-v4 peso 7. */
+export const weightedGraph = (() => {
+  let graph = withVertices(4);
+  graph = connect(graph, 'v1', 'v2');
+  graph = connect(graph, 'v2', 'v3', 0);
+  graph = connect(graph, 'v3', 'v4', -2.5);
+  return connect(graph, 'v1', 'v4', 7);
+})();
+
+/** Orientado: e1 v1→v2 peso 0, e2 v2→v1 peso −1 (arco oposto, outro peso), e3 v2→v3 sem peso. */
+export const weightedDigraph = (() => {
+  let graph = withVertices(3, true);
+  graph = connect(graph, 'v1', 'v2', 0);
+  graph = connect(graph, 'v2', 'v1', -1);
+  return connect(graph, 'v2', 'v3');
+})();
