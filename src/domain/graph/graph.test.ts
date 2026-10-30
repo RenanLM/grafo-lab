@@ -10,39 +10,8 @@ import {
   removeVertex,
   size,
   GRAPH_SCHEMA_VERSION,
-  type Graph,
-  type Result,
 } from './index';
-
-/** Congela o grafo inteiro: qualquer mutação nas operações vira TypeError (módulos são strict). */
-function deepFreeze<T>(value: T): T {
-  if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const child of Object.values(value)) deepFreeze(child);
-  }
-  return value;
-}
-
-function must<T>(result: Result<T>): T {
-  if (!result.ok) throw new Error(`esperava sucesso, mas veio ${result.error.code}`);
-  return result.value;
-}
-
-function errorOf(result: Result<unknown>) {
-  if (result.ok) throw new Error('esperava erro, mas a operação teve sucesso');
-  return result.error;
-}
-
-/** Grafo congelado com os vértices v1..vN (rótulos A, B, C…). */
-function withVertices(count: number, directed = false): Graph {
-  let graph = deepFreeze(createGraph({ id: 'g', directed }));
-  for (let i = 0; i < count; i++) graph = deepFreeze(addVertex(graph).graph);
-  return graph;
-}
-
-function connect(graph: Graph, source: string, target: string, weight?: number): Graph {
-  return deepFreeze(must(addEdge(graph, { source, target, weight })).graph);
-}
+import { connect, deepFreeze, errorOf, must, withVertices } from './test-helpers';
 
 describe('createGraph', () => {
   it('cria um grafo vazio, simples e não orientado por padrão', () => {

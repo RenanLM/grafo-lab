@@ -46,7 +46,9 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
 
 - ✅ 2.1 **Incremento 1:** fronteira do domínio (Jest em Node + regra de ESLint), tipos `Vertex`/`Edge`/`Graph`, `Result`/`GraphError`,
   `createGraph`, `addVertex`/`removeVertex`, `addEdge`/`removeEdge`, `getVertex`/`getEdge`/`findEdge`, `order`, `size`.
-- ⬜ 2.2 **Incremento 2:** grau (entrada, saída, total) e vizinhança (sucessores, predecessores, vizinhos); `setVertexLabel` e `setEdgeWeight`.
+- 🔄 2.2 **Incremento 2:**
+  - ✅ Parte A: grau (entrada, saída, total), vizinhança (sucessores, predecessores, vizinhos) e vértices isolados.
+  - ⬜ Parte B: `setVertexLabel` e `setEdgeWeight` (aguarda autorização).
 - ⬜ 2.3 **Incremento 3:** lista de adjacência e matriz de adjacência (ausência de aresta ≠ peso zero).
 - ⬜ 2.4 **Incremento 4:** matriz de incidência com a convenção de sinais declarada para orientados e não orientados.
 - ⬜ 2.5 **Incremento 5:** `serializeGraph` e `parseGraph(unknown)` validando todas as invariantes; testes de propriedade

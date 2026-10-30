@@ -14,6 +14,16 @@ export {
   type NewEdge,
 } from './graph';
 export {
+  degree,
+  inDegree,
+  isIsolated,
+  isolatedVertices,
+  neighbors,
+  outDegree,
+  predecessors,
+  successors,
+} from './queries';
+export {
   GRAPH_SCHEMA_VERSION,
   type Edge,
   type EdgeId,
