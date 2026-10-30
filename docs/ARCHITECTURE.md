@@ -761,9 +761,10 @@ unidades de tela (≈ 48 dp) é independente do desenho.
 - **B. Núcleo puro** (`src/features/graph-editor/core/`): TypeScript sem React, RN, Expo, JSX, gestos, SVG, animação nem
   Zustand. Importa só o domínio e a si mesmo. Responsabilidades futuras (um módulo por incremento): coordenadas de
   mundo e de tela e transformações da câmera (3.1: `worldToScreen`, `screenToWorld`, `zoomAt`, `fitToBounds`);
-  `GraphLayout` e posicionamento (3.2); geometria dos elementos e identificação por posição (3.3); comandos do editor e
-  histórico (3.4). Hoje a pasta tem `index.ts` (contrato e exportações), `camera.ts` (3.1), `boundary.test.ts` e
-  `camera.test.ts`, mais `test-helpers.ts` (gerador de sementes e `deepFreeze`, só para testes).
+  `GraphLayout` e posicionamento (3.2: `placeVertex`, `moveVertex`, `boundsOf`, `circularLayout`, `reconcileLayout`);
+  geometria dos elementos e identificação por posição (3.3); comandos do editor e histórico (3.4). Hoje a pasta tem
+  `index.ts` (contrato e exportações), `camera.ts` (3.1), `layout.ts` (3.2), `boundary.test.ts`, `camera.test.ts` e
+  `layout.test.ts`, mais `test-helpers.ts` (gerador de sementes e `deepFreeze`, só para testes).
 - **C. Interface** (`src/features/graph-editor/`): desenha vértices e arestas, recebe os toques e os traduz em
   **ações** do núcleo, mostra controles, propriedades e representações, executa animações. Não decide regras do grafo
   nem faz geometria.
@@ -837,29 +838,148 @@ válida):
 
 **Complexidade.** Todas as funções são **O(1)** em tempo e espaço (um número fixo de contas e de objetos pequenos).
 `fitToBounds` também é O(1) **porque recebe os limites do conteúdo já calculados**; calcular esses limites a partir de
-todas as posições (`boundsOf`, 3.2) é **O(V)**, uma varredura, e fica fora desta etapa.
+todas as posições (`boundsOf`, 3.2: `core/layout.ts`) é **Θ(V)**, uma varredura.
 
 **Precisão.** Cada conversão faz uma multiplicação (ou divisão) e uma soma, então o erro relativo fica em torno de
 10⁻¹⁶ vezes a magnitude dos valores intermediários; os testes usam tolerância relativa de 10⁻⁹ a essas magnitudes
 (coordenadas na casa de 10¹² incluídas) em vez de uma exigência absoluta.
 
-### Contrato do `GraphLayout` (especificação; implementação no 3.2)
+### `GraphLayout` (incremento 3.2: `core/layout.ts`)
 
-- **O que é.** Posição de cada vértice em **coordenadas de mundo**: `GraphLayout = { positions: Record<VertexId, { x, y }> }`.
-  Números finitos (`-0` vira `0`), eixo y para baixo, origem livre.
+TypeScript puro: não desenha, não escuta toques, não conhece a câmera nem a store. Do `Graph` lê só o `id` e a ordem dos
+vértices; o domínio e o JSON v1 não mudaram.
+
+**Estrutura.**
+```ts
+type GraphLayout = {
+  readonly graphId: Graph['id'];                                   // grafo dono
+  readonly positions: Readonly<Record<VertexId, Readonly<Point>>>; // id técnico → { x, y } em unidades de mundo
+};
+```
 - **Chave = id técnico** (`v1`, `v2`…), **nunca o rótulo**: renomear um vértice não mexe na posição, e rótulos repetidos
-  não causam ambiguidade.
-- **Não é parte do `Graph`** e não altera o modelo matemático. Mover um vértice **só** muda o layout (um passo de
-  histórico); a referência do `Graph` se preserva, então as representações memorizadas não são recalculadas.
-- **Independe da câmera** (`{ x, y, scale }`) e do tamanho da tela: nunca guarda coordenadas de tela.
-- **Reconciliação** `reconcileLayout(graph, layout)`: descarta posições de vértices que não existem mais (órfãs) e
-  posiciona os que ainda não têm posição; idempotente. Vértice sem posição é um estado válido até a reconciliação.
-- **Posicionamento inicial automático:** `circularLayout(graph)` determinístico (para exemplos e documentos sem layout);
-  criação por toque usa o ponto tocado, já convertido para mundo.
-- **Imutável, puro e determinístico** (`placeVertex`, `moveVertex`, `removePosition`, `boundsOf`).
-- **Serialização própria no futuro** (3.13): `LayoutDocument` v1 `{ schemaVersion, graphId, positions }`, separado do
-  JSON do `Graph`, com a mesma disciplina de validação da leitura de grafos e arquivos de referência próprios. O
-  documento do `Graph` v1 não ganha nenhum campo.
+  não causam ambiguidade. **Unidades:** as de **mundo** (as mesmas da câmera; eixo y para baixo, origem livre), nunca
+  coordenadas de tela. Números finitos; `-0` vira `0`.
+- **Não é parte do `Graph`** nem do modelo matemático. Mover um vértice **só** muda o layout (um passo de histórico); a
+  referência do `Graph` se preserva, então as representações memorizadas não são recalculadas. Não carrega câmera,
+  seleção nem animação.
+- **Por que `graphId` (decisão, ajuste da especificação do 3.0, que previa só `positions`).** Todo grafo tem `v1`, `v2`…:
+  um layout sem dono se aplicaria em silêncio a qualquer outro grafo, e uma store que trocasse o grafo sem trocar o layout
+  produziria posições erradas sem aviso. A alternativa mais simples (o `graphId` só no documento gravado, com a store
+  mantendo o par coerente) deixa essa invariante a cargo de quem chama. Com `graphId`, `reconcileLayout` **recusa**
+  reaproveitar posições de outro grafo. O custo é uma `string` por layout, e o campo é exatamente o `graphId` do futuro
+  documento de layout (3.13), ao qual falta só o `schemaVersion`.
+
+**API** (exportada por `core/index.ts`; todas puras, nenhuma lança):
+
+| Função | O que faz |
+| --- | --- |
+| `emptyLayout(graphId)` | layout sem posições |
+| `positionOf(layout, id)` | posição ou `undefined`; só propriedades **próprias** |
+| `placeVertex(layout, id, ponto)` | **acrescenta** a posição de um vértice que ainda não tem; se já tem, devolve o **mesmo layout** (nada é sobrescrito em silêncio) |
+| `moveVertex(layout, id, ponto)` | muda a posição (absoluta) de um vértice que **já** tem; sem posição, devolve o mesmo layout (nada é criado) |
+| `removePosition(layout, id)` | remove uma posição; as demais ficam como estavam |
+| `boundsOf(layout)` | `Bounds` (do `camera.ts`) dos **centros**; `undefined` sem posições, que é o "sem conteúdo" do `fitToBounds` |
+| `circularLayout(graph, { spacing?, minRadius? })` | posicionamento inicial determinístico (abaixo) |
+| `reconcileLayout(graph, layout, { spacing? })` | faz o layout valer para o grafo (abaixo) |
+
+Convenção de recusa, a mesma da câmera: coordenada não finita em `placeVertex`/`moveVertex`, ou operação que não muda nada,
+devolve **o mesmo objeto** (`resultado === layout`). `spacing` e `minRadius` inválidos (não finitos, `spacing ≤ 0`,
+`minRadius < 0`) valem o padrão, sem exceção. `DEFAULT_LAYOUT_SPACING = 96` unidades de mundo.
+
+**Invariantes de imutabilidade e de chaves.**
+- O layout, o objeto `positions` e cada `Point` são **congelados**; toda atualização devolve um layout **novo**. Os `Point`
+  existentes são reaproveitados entre layouts (congelados, então compartilhá-los é seguro) e o ponto recebido de fora é
+  **copiado**: alterar o objeto passado depois não muda o layout. Nenhum argumento é alterado.
+- `positions` é um objeto **sem protótipo** (`Object.create(null)`) e `positionOf` consulta com `hasOwnProperty`: um id como
+  `__proto__`, `constructor` ou `toString` é uma chave comum, e nada herdado vira "posição". O objeto sem protótipo já basta
+  (consultar sem `hasOwnProperty` seria equivalente); a consulta própria é defesa em profundidade.
+- Nenhuma função depende da ordem das propriedades dos objetos recebidos: `circularLayout` e `reconcileLayout` percorrem
+  `graph.vertices` (ordem de inserção), e `Object.keys` de um resultado segue essa ordem.
+- O Jest compila o código **fora do modo estrito** (preset do React Native), então escrever num objeto congelado é ignorado
+  em vez de lançar; por isso os testes comparam **valores** com entradas não congeladas, além de rodar com entradas
+  congeladas.
+
+**`circularLayout`: regras.** Ordem de **inserção** dos vértices (rótulos e arestas não contam), centro na origem do mundo,
+o **primeiro no topo**, sentido **horário na tela** (Y cresce para baixo, então o ângulo cresce):
+```text
+ângulo(i) = −π/2 + 2π·i/n          posição(i) = ( R·cos ângulo(i) , R·sin ângulo(i) )
+R = max(minRadius, spacing / (2·sin(π/n)))        (n ≥ 2)
+```
+`R` é a condição para a **corda** entre vizinhos (`2·R·sin(π/n)`), não o arco, valer `spacing`; a fórmula "arco" antiga
+(`spacing·n/2π`) deixaria os vizinhos mais perto que o espaçamento (com n = 6, ≈ 91,7 em vez de 96). Casos: 0 vértices →
+layout vazio; 1 → `(0, 0)` (mesmo com `minRadius`); 2 → `(0, −spacing/2)` e `(0, spacing/2)`; 3 ou mais → polígono regular
+inscrito. Com o espaçamento padrão:
+
+| n | posições (v1, v2, …) |
+| --- | --- |
+| 1 | (0, 0) |
+| 2 | (0, −48), (0, 48) |
+| 3 | (0, −55,426), (48, 27,713), (−48, 27,713) |
+| 4 | (0, −67,882), (67,882, 0), (0, 67,882), (−67,882, 0) |
+
+Arredondamento: cada coordenada vai a **3 casas** (0,001 unidade de mundo). Isso move a coordenada em até 0,0005 e pode
+deixar a distância entre vizinhos até ≈ 0,0015 **abaixo** de `spacing`; os testes usam a tolerância explícita de 0,003. O
+arredondamento limpa valores como `3,7e-15` e reduz a sensibilidade ao último bit de `sin`/`cos`, mas **não promete
+resultado idêntico bit a bit entre V8 e Hermes**. O layout leva o `graph.id`.
+
+**`reconcileLayout`: estratégia** (determinística, sem sorteio nem relógio, sem força nem iteração):
+1. **Layout de outro grafo** (`layout.graphId !== graph.id`): nenhuma posição é reaproveitada, mesmo com ids coincidentes;
+   devolve o `circularLayout` do grafo recebido (preferência por um layout inicial novo em vez de misturar).
+2. **Órfãs** (ids que não são vértices do grafo) são descartadas. **Posição inválida** guardada (não finita, de um layout
+   corrompido) conta como ausente.
+3. **Posições existentes são preservadas exatamente** (mesmos valores e mesmos objetos), mesmo que se sobreponham:
+   reconciliar não mexe em vértice já posicionado nem tenta "consertar" o desenho do aluno.
+4. **Nenhuma posição aproveitável** (layout vazio, só órfãs ou só inválidas) e há vértices → `circularLayout`.
+5. **Layout parcial:** cada vértice sem posição, na ordem de inserção, vai para a **primeira posição livre ao redor do
+   centroide** das posições preservadas (média na ordem dos vértices, calculada termo a termo para não estourar), a pelo
+   menos `spacing` de **todas** as ocupadas, inclusive as dos vértices novos já colocados. A busca é por **anéis
+   concêntricos** de raio `anel·spacing` (anel 0 = o próprio centroide; anel k com `max(6, ⌈2πk⌉)` candidatos, a partir do
+   topo, no sentido horário), com candidatos **já arredondados**, e é **limitada** a `ocupadas + 2` anéis; se nada servir,
+   o ponto à direita de todas (a mais de `spacing` de cada uma por construção). Sempre termina, sem laço aberto.
+6. **Idempotente:** sem nada a fazer (nenhuma órfã, nenhum vértice sem posição, mesmo grafo) devolve o **próprio layout**
+   recebido, com a ordem das chaves dele; reconciliar o resultado de novo devolve o mesmo objeto.
+
+Só os vértices **novos** respeitam a distância; entre os preservados vale a que vieram. Um candidato exatamente a `spacing`
+é aceito (a comparação é `< spacing²`), e como o arredondamento a 3 casas pode empurrá-lo para dentro, o 3º candidato do
+anel 1 em torno de um ocupado isolado (por exemplo) é rejeitado por 0,0001; isso é determinístico e inofensivo.
+
+**Complexidade real** (V = posições do layout ou vértices; K = vértices sem posição; m = posições ocupadas na hora):
+
+| Operação | Tempo | Observação |
+| --- | --- | --- |
+| `positionOf` | O(1) esperado | acesso a propriedade própria |
+| `placeVertex`, `moveVertex`, `removePosition` | **Θ(V)** | layout imutável: o objeto de posições é **copiado** a cada atualização (os pontos não); uma estrutura persistente baixaria para O(log V), sem compensar nesta escala |
+| `boundsOf`, `circularLayout` | Θ(V) | uma varredura |
+| `reconcileLayout` sem vértices novos | Θ(V) | devolve o próprio layout se nada muda |
+| `reconcileLayout` com K novos | típico Θ(V + K·V); **pior caso O(K·V²)** | cada candidato é comparado com todas as m ocupadas (Θ(m)); o número de candidatos por vértice novo é, no caso típico, uma constante pequena e, no pior caso, O(m) |
+
+**Não há índice espacial** (nenhuma biblioteca): só se justificaria se a medição mostrasse o pior caso na prática. Espaço:
+Θ(V) por layout novo.
+
+**Integração com a câmera** (sem alterar `camera.ts`): `fitToBounds(camera, boundsOf(layout), viewport, { margin })`, depois
+`worldToScreen`/`screenToWorld` com a câmera resultante. O círculo cabe no viewport com margem quando os limites de escala
+permitem (testado de 2 a 12 vértices). `boundsOf` cobre **centros**: a margem de `fitToBounds` é em **dp**, e o raio visual de
+um vértice cresce com a escala, então com a margem sozinha o círculo desenhado pode ultrapassar a borda (testado:
+raio de 20 unidades, margem de 24 dp, escala ≈ 2,3). A interface (3.5) deve **expandir os limites pelo raio visual, em
+unidades de mundo**, antes de enquadrar. Com muitos vértices (testado com 2000) a escala para no mínimo (0,25) e o conteúdo
+excede o viewport, como a câmera já documenta.
+
+**Limitações conhecidas.**
+- `boundsOf` não inclui raio dos vértices, rótulos nem arestas (veja acima).
+- O arredondamento a 3 casas e a tolerância de 0,003 no espaçamento circular; sem promessa de igualdade bit a bit entre
+  motores (V8 × Hermes): `sin`/`cos` podem diferir no último bit, e o arredondamento esconde isso salvo quando o valor cai a
+  ~10⁻¹³ de uma fronteira de arredondamento.
+- Pior caso O(K·V²) sem índice espacial; com 3000 vértices e quase todos novos seria lento (o caso real é "alguns novos").
+- Cópia a cada atualização, Θ(V): **não** chamar `moveVertex` a cada quadro durante o arrasto de um grafo grande. O
+  arrasto deve manter a posição transitória fora do layout (valor compartilhado da Reanimated) e confirmar **uma** vez
+  no fim do gesto (3.4/3.10).
+- Magnitudes ≈ 10³⁰⁸: a finitude é garantida (não há `NaN`/`Infinity`), mas, quando `direita + spacing` estoura, o novo vértice
+  cai no centroide e o espaçamento não é garantido. Fora do uso real (o mundo do editor tem ordem de 10²–10⁴).
+- Não é um algoritmo de desenho: **sem forças, sem minimizar cruzamentos, sem desfazer sobreposição** de posições já
+  existentes. Os layouts por força e por camadas ficam para depois, se forem desejados.
+- Sem persistência ainda: o `LayoutDocument` v1 `{ schemaVersion, graphId, positions }` (3.13) é separado do JSON do
+  `Graph`, com a mesma disciplina de validação da leitura de grafos e arquivos de referência próprios; o documento do
+  `Graph` v1 não ganha nenhum campo.
 
 ### IDs e histórico: estratégia (corrige o ROADMAP; implementação no 3.4)
 
@@ -1033,6 +1153,22 @@ descartada: o repositório não tem nenhum editor nem tela falsa.
   escrever num objeto congelado é ignorado em vez de lançar; a imutabilidade é conferida por comparação com uma cópia
   tirada antes, com argumentos não congelados (o comentário "módulos são strict" em `src/domain/graph/test-helpers.ts`
   vale só para código estrito).
+- **GraphLayout** (`core/layout.test.ts`, projeto `editor-core`, Node; 102 testes): modelo e operações (posicionar não
+  sobrescreve, mover não cria, recusas devolvem o mesmo layout, `-0`, cópia do ponto recebido), **ids perigosos**
+  (`__proto__`, `constructor`, `toString`…), `boundsOf`, `circularLayout` com 1, 2, 3 e 4 vértices **calculados à mão**,
+  raio pela corda (a fórmula do arco é reprovada), vizinhança com tolerância explícita de 0,003, ordem de inserção com ids
+  em lacunas, rótulos repetidos, arestas/orientação irrelevantes; `reconcileLayout` (órfãs, parcial com centroide nos dois
+  eixos, ordem dos anéis conferida por uma **reimplementação independente** da regra, outro grafo com ids coincidentes,
+  posição inválida, posições sobrepostas e coordenadas negativas, extremos de espaçamento e de magnitude); **600 casos com
+  sementes fixas** (uma posição por vértice, nenhuma órfã, preservadas exatamente, idempotência por identidade, distância
+  dos novos, determinismo), um modelo de referência (`Map`) para 50 operações aleatórias com cada versão antiga
+  intacta, e a integração com a câmera (`fitToBounds`, ida e volta, escala mínima, limite da margem em dp). Em **mutação
+  dirigida** (68 mutações de `layout.ts`: índice × id, rótulo × id, sentido, topo, raio por arco, `minRadius`,
+  `spacing`, arredondamento, `-0`, validação de coordenadas, sobrescrita, aliasing, protótipo, limites mínimos e máximos,
+  comparação `<` × `<=`, busca de anéis, fallback, outro grafo, órfãs, posições movidas, vértice novo sem posição,
+  idempotência, centroide) 67 foram detectadas; a que sobrou é **equivalente** (`positionOf` sem `hasOwnProperty`).
+  Duas mutações (`({}) as Positions`) só valem com parênteses: sem eles o Babel lê um bloco de função e a suíte não
+  compila, o que o relatório mostra como "0 total" e **não** conta como detecção.
 - **Ambiente de testes das bibliotecas do editor** (`graph-editor/native-stack.test.tsx`, projeto `app`): SVG
   (`Svg`, `G`, `Line`, `Circle`, `Text`) renderiza com suas propriedades; toque e arrasto simulados por
   `createGestureController` atualizam a tela; um componente com valor compartilhado e estilo animado monta. Não testa o

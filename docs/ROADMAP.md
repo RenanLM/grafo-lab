@@ -130,17 +130,17 @@ estão em `ARCHITECTURE.md`):
 A etapa 3.4B registrou a tabela comparativa e as medições em `ARCHITECTURE.md`; limites de tamanho para a interface
 só depois de medir em Hermes e em Android com poucos recursos (tarefa 4.6).
 
-## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 e 3.1 concluídos; os demais aguardam autorização)
+## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0, 3.1 e 3.2 concluídos; os demais aguardam autorização)
 
-Só os incrementos 3.0 (infraestrutura) e 3.1 (câmera pura) foram feitos; **não há editor**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
+Só os incrementos 3.0 (infraestrutura), 3.1 (câmera pura) e 3.2 (`GraphLayout` puro) foram feitos; **não há editor**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
 quando houver regra nova e uma mensagem de commit. Tamanhos: **S** (um módulo puro e seus testes) e **M** (lógica +
 interface). Ordem como no prompt mestre: renderizar, criar, conectar, selecionar; **depois** arrastar, deslocar e
 ampliar, em incrementos separados.
 
 **Princípios**
-- **`Graph` e `GraphLayout` separados.** `GraphLayout = { positions: Record<VertexId, { x, y }> }` em **coordenadas de
-  mundo**, indexado pelo id estável do vértice; não entra no `Graph` nem no documento v1. Posição e câmera nunca mudam um
-  resultado matemático.
+- **`Graph` e `GraphLayout` separados.** `GraphLayout = { graphId, positions: Record<VertexId, { x, y }> }` em
+  **coordenadas de mundo**, indexado pelo id estável do vértice e ligado ao `graph.id` dono; não entra no `Graph` nem no
+  documento v1. Posição e câmera nunca mudam um resultado matemático.
 - **Mundo ≠ tela.** Toda conversão passa por `worldToScreen`/`screenToWorld`. O tamanho de toque é em **dp de tela**
   (alvo ≥ 48 dp) e independe do zoom; o hit-testing opera em coordenadas de tela convertidas.
 - **Lógica pura fora de componentes e de stores.** Câmera, layout, geometria, hit-testing, transições do editor e
@@ -221,30 +221,49 @@ ampliar, em incrementos separados.
     mutações de `camera.ts`, 44 detectadas e 2 equivalentes (defesas redundantes de propósito).
   - *Commit:* `feat(editor): add pure camera transforms`
 
-- ⬜ **3.2 `GraphLayout` e posicionamento automático** (S, `core/layout.ts`; importa `Point` e `Bounds` de `camera.ts` e
-  `Graph`/`VertexId` de `@/domain/graph`). Implementa o contrato de `ARCHITECTURE.md`, "Contrato do `GraphLayout`":
-  `GraphLayout = { positions: Record<VertexId, Point> }`, em coordenadas de mundo, chaves = ids técnicos (nunca
-  rótulos), independente da câmera. Funções puras: `placeVertex`, `moveVertex`, `removePosition`, `positionOf`,
-  `boundsOf(layout): Bounds | undefined` (O(V); `undefined` se vazio, para alimentar o `fitToBounds`),
-  `reconcileLayout(graph, layout)` e `circularLayout(graph, options?)`.
+- ✅ **3.2 `GraphLayout` e posicionamento automático** (S, `core/layout.ts`; importa `Point` e `Bounds` de `camera.ts` e
+  `Graph`/`VertexId` de `@/domain/graph`). `GraphLayout = { graphId, positions }`, em coordenadas de mundo, chaves = ids
+  técnicos (nunca rótulos), independente da câmera. **Ajuste da especificação do 3.0:** o layout carrega o `graphId` do
+  grafo dono (todo grafo tem `v1`, `v2`…; sem dono, o layout se aplicaria em silêncio a qualquer outro grafo). `positions`
+  é um objeto **sem protótipo e congelado**, assim como o layout e cada ponto (ids como `__proto__` ou `toString` são
+  chaves comuns). Funções puras, nenhuma lança: `emptyLayout`, `positionOf`, `placeVertex` (acrescenta; se o vértice já
+  tem posição, devolve o **mesmo layout** em vez de sobrescrever), `moveVertex` (só move quem já tem posição),
+  `removePosition`, `boundsOf(layout): Bounds | undefined` (centros; Θ(V); `undefined` se vazio, para o `fitToBounds`),
+  `circularLayout(graph, { spacing?, minRadius? })` e `reconcileLayout(graph, layout, { spacing? })`. Recusa = **mesma
+  referência** (coordenada não finita, nada a mudar), como na câmera.
   - *Posicionamento automático:* `circularLayout` põe os vértices **na ordem de inserção** numa circunferência centrada
-    na origem do mundo, começando no topo e avançando no sentido horário **da tela** (Y para baixo), com raio
-    `R = max(Rmín, espaçamento · n / 2π)` para que vizinhos fiquem a pelo menos `espaçamento` (padrão provisório 96
-    unidades de mundo); `n = 1` → origem; coordenadas **arredondadas a 3 casas** para que o mesmo grafo dê o mesmo
-    layout em qualquer motor (`Math.sin`/`cos` não são exatos bit a bit entre V8 e Hermes). `reconcileLayout` descarta
-    posições órfãs e posiciona cada vértice sem posição: layout vazio e vários vértices → `circularLayout`; senão, a
-    primeira posição livre de uma espiral determinística ao redor do centroide (distância mínima `espaçamento`), na
-    ordem de inserção. Posição ou deslocamento não finito → o mesmo layout (como a câmera).
-  - *Aceite:* as posições seguem o **id**, não o índice (remover o vértice do meio não desloca os outros); depois do
-    `reconcileLayout` há uma posição por vértice e nenhuma a mais; `reconcileLayout` é idempotente; mesmo grafo, mesmo
-    layout; entradas não são alteradas; `boundsOf` + `fitToBounds` enquadram um `circularLayout` inteiro no viewport.
-  - *Testes:* exemplos à mão (triângulo e quadrado no círculo), propriedades com sementes fixas sobre grafos do
-    domínio com remoções (distância mínima no círculo, idempotência, ids), imutabilidade, determinismo, integração com a
-    câmera; mutação dirigida (id × índice, órfãs mantidas, raio, ordem, arredondamento, sentido). Sem serialização (3.13)
-    e sem layouts dirigidos por força.
+    na origem do mundo, o primeiro no topo, no sentido horário **da tela** (Y para baixo), com
+    **`R = max(Rmín, espaçamento / (2·sin(π/n)))`** (a corda entre vizinhos vale `espaçamento`; a fórmula do arco,
+    `espaçamento·n/2π`, deixaria vizinhos mais perto que o espaçamento). Padrão provisório 96 unidades de mundo; `n = 1`
+    → origem; `n = 2` → `(0, ±48)`. Coordenadas **arredondadas a 3 casas**, com tolerância explícita de 0,003 na distância
+    entre vizinhos; **sem promessa de resultado idêntico bit a bit entre V8 e Hermes**.
+  - *Reconciliação:* `reconcileLayout` descarta órfãs; **preserva exatamente** as posições dos vértices que existem (mesmo
+    que se sobreponham); layout de **outro grafo** não é reaproveitado (vira o `circularLayout` do grafo recebido);
+    layout vazio ou sem posição aproveitável → `circularLayout`; parcial → cada vértice novo, na ordem de inserção, vai
+    à primeira posição livre em **anéis concêntricos** ao redor do centroide dos preservados, a ≥ `espaçamento` de todas as
+    ocupadas, com busca limitada e fallback; idempotente (sem nada a fazer, devolve o próprio layout). Sem forças.
+  - *Complexidade real:* `positionOf` O(1); `placeVertex`/`moveVertex`/`removePosition` **Θ(V)** (cópia do objeto de
+    posições, layout imutável); `boundsOf` e `circularLayout` Θ(V); `reconcileLayout` Θ(V) sem vértices novos, típico
+    Θ(V + K·V) e **pior caso O(K·V²)** (cada candidato é comparado com todas as ocupadas; sem índice espacial).
+  - *Integração com a câmera:* `fitToBounds(camera, boundsOf(layout), …)` enquadra o círculo com margem; como `boundsOf`
+    cobre **centros** e a margem é em dp, a interface (3.5) deve **expandir os limites pelo raio visual, em unidades de
+    mundo**, antes de enquadrar; com muitos vértices a escala mínima da câmera deixa o conteúdo exceder o viewport.
+  - *Limitações:* sem persistência (3.13), sem layouts por força ou por camadas, sem desfazer sobreposição de posições
+    existentes; cópia Θ(V) por atualização (o arrasto deve confirmar **uma** vez no fim do gesto, não a cada quadro);
+    coordenadas ≈ 10³⁰⁸ garantem finitude, não espaçamento. Detalhes em `ARCHITECTURE.md`, "`GraphLayout`".
+  - *Testes:* 102 novos em `core/layout.test.ts` (1, 2, 3 e 4 vértices calculados à mão, raio por corda, ordem de
+    inserção com ids em lacunas, rótulos repetidos, grafos orientados/desconexos/com isolados, órfãs, parcial, outro grafo
+    com ids coincidentes, coordenadas negativas e inválidas, posições sobrepostas, ordem dos anéis conferida por
+    reimplementação independente, ids `__proto__`/`constructor`/`toString`, imutabilidade, determinismo sem
+    `Math.random`/`Date.now`, 600 casos com sementes fixas e integração com a câmera); total do projeto **1518**. Mutação
+    dirigida: 68 mutações de `layout.ts`, 67 detectadas e 1 **equivalente** (consultar `positionOf` sem `hasOwnProperty`
+    é indiferente porque o objeto de posições não tem protótipo; a consulta própria fica como defesa em profundidade).
   - *Commit:* `feat(editor): add GraphLayout and deterministic placement`
 - ⬜ **3.3 Geometria e hit-testing puros** (M). `edgeGeometry` (reta de borda a borda, ponta de seta no destino, **arcos
-  opostos em curvas deslocadas** para não se sobreporem, âncora do peso), `hitTestVertex`, `hitTestEdge`.
+  opostos em curvas deslocadas** para não se sobreporem, âncora do peso), `hitTestVertex`, `hitTestEdge`. Entradas: o
+  `GraphLayout` do 3.2 (posições por id, em mundo) e a câmera do 3.1; o raio visual do vértice, que o `boundsOf` não
+  cobre (ele devolve centros), nasce aqui como constante de mundo, e a interface (3.5) o usa para expandir os limites
+  antes de enquadrar.
   - *Aceite (critério da fase):* **depois de zoom e pan, tocar acerta o vértice esperado**; a tolerância é fixa em
     dp de tela; vértices sobrepostos desempatam por distância e depois por ordem de inserção; toque no vazio não
     acerta nada; aresta só é acertada fora dos vértices.
