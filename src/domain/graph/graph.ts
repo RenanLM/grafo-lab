@@ -22,6 +22,9 @@ export type NewEdge = {
   weight?: number;
 };
 
+/** Tamanho máximo do rótulo de um vértice, em pontos de código Unicode (não em unidades UTF-16). */
+export const MAX_VERTEX_LABEL_LENGTH = 64;
+
 export function createGraph({ id, name = '', directed = false }: CreateGraphOptions): Graph {
   return {
     schemaVersion: GRAPH_SCHEMA_VERSION,
@@ -116,8 +119,7 @@ export function addEdge(
     id: `e${graph.nextEdgeSeq}`,
     source,
     target,
-    // `-0` vira `0` para que a igualdade estrutural não distinga os dois zeros.
-    ...(weight !== undefined && { weight: weight === 0 ? 0 : weight }),
+    ...(weight !== undefined && { weight: normalizeWeight(weight) }),
   };
   return ok({
     graph: { ...graph, edges: [...graph.edges, edge], nextEdgeSeq: graph.nextEdgeSeq + 1 },
@@ -130,6 +132,49 @@ export function removeEdge(graph: Graph, edgeId: EdgeId): Result<Graph> {
   return ok({ ...graph, edges: graph.edges.filter((edge) => edge.id !== edgeId) });
 }
 
+/**
+ * Define o rótulo do vértice. O texto passa por `trim()` e, depois disso, precisa ter de 1 a
+ * `MAX_VERTEX_LABEL_LENGTH` pontos de código. Rótulos repetidos entre vértices são permitidos.
+ * Preserva o id, a posição e as conexões; se o rótulo final é o atual, devolve o mesmo grafo.
+ * Validações, em ordem: vértice existe → rótulo válido.
+ */
+export function setVertexLabel(graph: Graph, vertexId: VertexId, label: string): Result<Graph> {
+  const vertex = getVertex(graph, vertexId);
+  if (!vertex) return fail({ code: 'VERTEX_NOT_FOUND', vertexId });
+  const normalized = normalizeLabel(label);
+  if (!normalized.ok) return normalized;
+  if (normalized.value === vertex.label) return ok(graph);
+  return ok({
+    ...graph,
+    vertices: graph.vertices.map((v) => (v === vertex ? { ...v, label: normalized.value } : v)),
+  });
+}
+
+/**
+ * Define o peso da aresta; `undefined` remove o peso (aresta não ponderada). Remover o peso é
+ * diferente de definir peso 0: `0` é um peso válido e `undefined` deixa a aresta sem peso.
+ * `null`, `NaN`, `±Infinity` e não-números → `INVALID_WEIGHT`; `-0` é normalizado para `0`.
+ * Preserva o id, os extremos, a orientação e a posição; se o peso final é o atual, devolve o
+ * mesmo grafo. Validações, em ordem: aresta existe → peso válido.
+ */
+export function setEdgeWeight(
+  graph: Graph,
+  edgeId: EdgeId,
+  weight: number | undefined,
+): Result<Graph> {
+  const edge = getEdge(graph, edgeId);
+  if (!edge) return fail({ code: 'EDGE_NOT_FOUND', edgeId });
+  if (weight !== undefined && !isValidWeight(weight)) {
+    return fail({ code: 'INVALID_WEIGHT', weight });
+  }
+  const next = weight === undefined ? undefined : normalizeWeight(weight);
+  if (next === edge.weight) return ok(graph);
+  return ok({
+    ...graph,
+    edges: graph.edges.map((e) => (e === edge ? withWeight(e, next) : e)),
+  });
+}
+
 function connects(directed: boolean, edge: Edge, source: VertexId, target: VertexId): boolean {
   if (edge.source === source && edge.target === target) return true;
   return !directed && edge.source === target && edge.target === source;
@@ -137,4 +182,28 @@ function connects(directed: boolean, edge: Edge, source: VertexId, target: Verte
 
 function isValidWeight(weight: unknown): weight is number {
   return typeof weight === 'number' && Number.isFinite(weight);
+}
+
+/** `-0` vira `0` para que a igualdade estrutural não distinga os dois zeros. */
+function normalizeWeight(weight: number): number {
+  return weight === 0 ? 0 : weight;
+}
+
+/** Cópia da aresta com o peso dado, ou sem o campo `weight` se `undefined`; os demais campos seguem iguais. */
+function withWeight(edge: Edge, weight: number | undefined): Edge {
+  const { weight: _previous, ...rest } = edge;
+  return weight === undefined ? rest : { ...rest, weight };
+}
+
+/** Aplica `trim()` e valida o tamanho (em pontos de código). Devolve o rótulo normalizado. */
+function normalizeLabel(label: unknown): Result<string> {
+  if (typeof label !== 'string') {
+    return fail({ code: 'INVALID_VERTEX_LABEL', label, reason: 'NOT_A_STRING' });
+  }
+  const trimmed = label.trim();
+  if (trimmed === '') return fail({ code: 'INVALID_VERTEX_LABEL', label, reason: 'EMPTY' });
+  if (Array.from(trimmed).length > MAX_VERTEX_LABEL_LENGTH) {
+    return fail({ code: 'INVALID_VERTEX_LABEL', label, reason: 'TOO_LONG' });
+  }
+  return ok(trimmed);
 }

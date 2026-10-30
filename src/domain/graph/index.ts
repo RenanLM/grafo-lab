@@ -1,4 +1,4 @@
-export { fail, ok, type GraphError, type Result } from './errors';
+export { fail, ok, type GraphError, type InvalidLabelReason, type Result } from './errors';
 export {
   addEdge,
   addVertex,
@@ -6,9 +6,12 @@ export {
   findEdge,
   getEdge,
   getVertex,
+  MAX_VERTEX_LABEL_LENGTH,
   order,
   removeEdge,
   removeVertex,
+  setEdgeWeight,
+  setVertexLabel,
   size,
   type CreateGraphOptions,
   type NewEdge,

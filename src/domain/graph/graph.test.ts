@@ -8,10 +8,13 @@ import {
   order,
   removeEdge,
   removeVertex,
+  setEdgeWeight,
+  setVertexLabel,
   size,
   GRAPH_SCHEMA_VERSION,
+  MAX_VERTEX_LABEL_LENGTH,
 } from './index';
-import { connect, deepFreeze, errorOf, must, withVertices } from './test-helpers';
+import { connect, deepFreeze, errorOf, graphOf, must, withVertices } from './test-helpers';
 
 describe('createGraph', () => {
   it('cria um grafo vazio, simples e não orientado por padrão', () => {
@@ -343,5 +346,413 @@ describe('imutabilidade', () => {
 
     expect(graph).not.toBe(base);
     expect(graph.vertices[0]).toBe(base.vertices[0]);
+  });
+});
+
+describe('setVertexLabel', () => {
+  // v1="A", v2="B", v3="C"; arestas e1 (v1-v2) e e2 (v2-v3).
+  const base = graphOf(3, [
+    ['v1', 'v2'],
+    ['v2', 'v3'],
+  ]);
+
+  it('troca o rótulo preservando id, posição, conexões e os demais vértices', () => {
+    const next = must(setVertexLabel(base, 'v2', 'Origem'));
+
+    expect(next.vertices).toEqual([
+      { id: 'v1', label: 'A' },
+      { id: 'v2', label: 'Origem' },
+      { id: 'v3', label: 'C' },
+    ]);
+    expect(next.vertices[0]).toBe(base.vertices[0]);
+    expect(next.vertices[2]).toBe(base.vertices[2]);
+    expect(next.edges).toEqual(base.edges);
+    // Todo o resto do grafo (nome, orientação, contadores, arestas) fica idêntico.
+    expect({ ...next, vertices: [] }).toEqual({ ...base, vertices: [] });
+  });
+
+  describe('trim', () => {
+    it.each([
+      ['espaços comuns', '  Origem  '],
+      ['tab e quebras de linha', '\t\nOrigem\r\n'],
+      ['espaço não separável (U+00A0)', ' Origem '],
+      ['espaço largo (U+2003)', ' Origem '],
+    ])('remove espaços das pontas: %s', (_nome, entrada) => {
+      expect(must(setVertexLabel(base, 'v1', entrada)).vertices[0]!.label).toBe('Origem');
+    });
+
+    it('mantém os espaços do meio', () => {
+      expect(must(setVertexLabel(base, 'v1', ' Nó  inicial ')).vertices[0]!.label).toBe(
+        'Nó  inicial',
+      );
+    });
+  });
+
+  describe('rótulos inválidos', () => {
+    it.each([
+      ['vazio', ''],
+      ['só espaços', '   '],
+      ['só tab e quebra de linha', '\t\n'],
+      ['só espaço não separável', '  '],
+    ])('rejeita rótulo %s (EMPTY)', (_nome, label) => {
+      expect(errorOf(setVertexLabel(base, 'v1', label))).toEqual({
+        code: 'INVALID_VERTEX_LABEL',
+        label,
+        reason: 'EMPTY',
+      });
+    });
+
+    const naoStrings: [string, unknown][] = [
+      ['número', 42],
+      ['null', null],
+      ['undefined', undefined],
+      ['objeto', {}],
+      ['lista', ['A']],
+    ];
+    it.each(naoStrings)('rejeita valor que não é string: %s (NOT_A_STRING)', (_nome, valor) => {
+      expect(errorOf(setVertexLabel(base, 'v1', valor as string))).toEqual({
+        code: 'INVALID_VERTEX_LABEL',
+        label: valor,
+        reason: 'NOT_A_STRING',
+      });
+    });
+
+    it('o erro devolve o texto original, sem trim', () => {
+      const error = errorOf(setVertexLabel(base, 'v1', ` ${'a'.repeat(65)} `));
+
+      expect(error).toEqual({
+        code: 'INVALID_VERTEX_LABEL',
+        label: ` ${'a'.repeat(65)} `,
+        reason: 'TOO_LONG',
+      });
+    });
+
+    it('o grafo de entrada não muda quando o rótulo é inválido', () => {
+      const antes = JSON.stringify(base);
+      setVertexLabel(base, 'v1', '');
+      setVertexLabel(base, 'v1', 7 as unknown as string);
+
+      expect(JSON.stringify(base)).toBe(antes);
+    });
+  });
+
+  describe('limite de tamanho', () => {
+    it('o limite é de 64 pontos de código', () => {
+      expect(MAX_VERTEX_LABEL_LENGTH).toBe(64);
+    });
+
+    it('aceita exatamente 64 caracteres e rejeita 65', () => {
+      const limite = 'a'.repeat(64);
+
+      expect(must(setVertexLabel(base, 'v1', limite)).vertices[0]!.label).toBe(limite);
+      expect(errorOf(setVertexLabel(base, 'v1', `${limite}a`))).toMatchObject({
+        code: 'INVALID_VERTEX_LABEL',
+        reason: 'TOO_LONG',
+      });
+    });
+
+    it('conta pontos de código, não unidades UTF-16 (um emoji vale 1)', () => {
+      const emojis = '😀'.repeat(64);
+
+      expect(emojis.length).toBe(128); // 128 unidades UTF-16, mas 64 pontos de código
+      expect(must(setVertexLabel(base, 'v1', emojis)).vertices[0]!.label).toBe(emojis);
+      expect(errorOf(setVertexLabel(base, 'v1', '😀'.repeat(65))).code).toBe(
+        'INVALID_VERTEX_LABEL',
+      );
+    });
+
+    it('conta cada ponto de código: "e" + acento combinante valem 2', () => {
+      const decomposto = 'é'; // aparece como "é", mas são 2 pontos de código
+
+      expect(must(setVertexLabel(base, 'v1', decomposto.repeat(32))).vertices[0]!.label).toHaveLength(
+        64,
+      );
+      expect(errorOf(setVertexLabel(base, 'v1', decomposto.repeat(33))).code).toBe(
+        'INVALID_VERTEX_LABEL',
+      );
+    });
+
+    it('o limite vale depois do trim', () => {
+      const limite = 'a'.repeat(64);
+
+      expect(must(setVertexLabel(base, 'v1', `  ${limite}  `)).vertices[0]!.label).toBe(limite);
+      expect(errorOf(setVertexLabel(base, 'v1', `${limite}a  `)).code).toBe('INVALID_VERTEX_LABEL');
+    });
+  });
+
+  describe('Unicode', () => {
+    it.each(['α', 'グラフ', '𝒢', 'ação', 'Ünïcödé', '👨‍👩‍👧', 'Nó 1 → Nó 2'])(
+      'aceita e guarda "%s" sem alterar',
+      (label) => {
+        expect(must(setVertexLabel(base, 'v1', label)).vertices[0]!.label).toBe(label);
+      },
+    );
+
+    it('não normaliza a forma Unicode (guarda o que o aluno digitou)', () => {
+      const decomposto = 'é';
+
+      expect(must(setVertexLabel(base, 'v1', decomposto)).vertices[0]!.label).toBe(decomposto);
+      expect(decomposto).not.toBe('é');
+    });
+
+    it('limitação conhecida: trim() não remove caracteres invisíveis como U+200B', () => {
+      expect(must(setVertexLabel(base, 'v1', '​')).vertices[0]!.label).toBe('​');
+    });
+  });
+
+  describe('rótulos repetidos', () => {
+    it('permite o mesmo rótulo em vários vértices (a identidade é o id)', () => {
+      const next = must(setVertexLabel(base, 'v2', 'A')); // v1 já se chama "A"
+
+      expect(next.vertices.map((v) => v.label)).toEqual(['A', 'A', 'C']);
+      expect(new Set(next.vertices.map((v) => v.id)).size).toBe(3);
+    });
+  });
+
+  describe('vértice inexistente', () => {
+    it('falha com VERTEX_NOT_FOUND', () => {
+      expect(errorOf(setVertexLabel(base, 'v9', 'X'))).toEqual({
+        code: 'VERTEX_NOT_FOUND',
+        vertexId: 'v9',
+      });
+      expect(errorOf(setVertexLabel(withVertices(0), 'v1', 'X')).code).toBe('VERTEX_NOT_FOUND');
+    });
+
+    it('vértice inexistente vence rótulo inválido', () => {
+      expect(errorOf(setVertexLabel(base, 'v9', '')).code).toBe('VERTEX_NOT_FOUND');
+    });
+
+    it('um vértice removido não pode mais ser renomeado', () => {
+      const semV1 = must(removeVertex(base, 'v1'));
+
+      expect(errorOf(setVertexLabel(semV1, 'v1', 'X')).code).toBe('VERTEX_NOT_FOUND');
+    });
+  });
+
+  describe('estrutura preservada', () => {
+    it('mantém orientação e conexões em grafo orientado', () => {
+      const directed = graphOf(2, [['v1', 'v2']], true);
+      const next = must(setVertexLabel(directed, 'v1', 'Fonte'));
+
+      expect(next.directed).toBe(true);
+      expect(findEdge(next, 'v1', 'v2')?.id).toBe('e1');
+      expect(findEdge(next, 'v2', 'v1')).toBeUndefined();
+    });
+
+    it('não mexe nos contadores: o próximo vértice segue a sequência e o rótulo padrão', () => {
+      const renomeado = must(setVertexLabel(withVertices(1), 'v1', 'X'));
+
+      expect(addVertex(renomeado).vertex).toEqual({ id: 'v2', label: 'B' });
+    });
+  });
+
+  describe('sem mudança', () => {
+    it('devolve o mesmo grafo quando o rótulo não muda, também depois do trim', () => {
+      expect(must(setVertexLabel(base, 'v1', 'A'))).toBe(base);
+      expect(must(setVertexLabel(base, 'v1', '  A '))).toBe(base);
+    });
+  });
+
+  describe('imutabilidade e determinismo', () => {
+    it('não altera o grafo de entrada (entradas congeladas)', () => {
+      const antes = JSON.stringify(base);
+
+      must(setVertexLabel(base, 'v1', 'Novo'));
+      setVertexLabel(base, 'v9', 'X');
+
+      expect(JSON.stringify(base)).toBe(antes);
+    });
+
+    it('é determinístico e idempotente; vale o último rótulo', () => {
+      const a = must(setVertexLabel(base, 'v1', ' X '));
+      const b = must(setVertexLabel(base, 'v1', 'X'));
+
+      expect(a).toEqual(b);
+      expect(must(setVertexLabel(a, 'v1', 'X'))).toBe(a);
+      expect(must(setVertexLabel(a, 'v1', 'Y')).vertices[0]!.label).toBe('Y');
+    });
+  });
+});
+
+describe('setEdgeWeight', () => {
+  // e1 (v1-v2) peso 5, e2 (v2-v3) peso 0, e3 (v1-v3) sem peso.
+  const mixed = (() => {
+    let graph = withVertices(3);
+    graph = connect(graph, 'v1', 'v2', 5);
+    graph = connect(graph, 'v2', 'v3', 0);
+    return connect(graph, 'v1', 'v3');
+  })();
+
+  const weightOf = (graph: typeof mixed, edgeId: string) => getEdge(graph, edgeId)!.weight;
+
+  describe('definir e redefinir', () => {
+    it.each([
+      ['positivo', 2.5],
+      ['zero', 0],
+      ['negativo', -3],
+      ['muito grande', Number.MAX_VALUE],
+      ['muito grande e negativo', -Number.MAX_VALUE],
+      ['menor positivo', Number.MIN_VALUE],
+    ])('define peso %s em aresta sem peso', (_nome, peso) => {
+      expect(weightOf(must(setEdgeWeight(mixed, 'e3', peso)), 'e3')).toBe(peso);
+    });
+
+    it('substitui um peso existente', () => {
+      expect(weightOf(must(setEdgeWeight(mixed, 'e1', 7)), 'e1')).toBe(7);
+      expect(weightOf(must(setEdgeWeight(mixed, 'e1', -1)), 'e1')).toBe(-1);
+    });
+
+    it('normaliza -0 para 0', () => {
+      const next = must(setEdgeWeight(mixed, 'e3', -0));
+
+      expect(Object.is(weightOf(next, 'e3'), 0)).toBe(true);
+    });
+  });
+
+  describe('remover o peso (undefined) × peso zero', () => {
+    it('undefined remove o campo, e a aresta volta a ser não ponderada', () => {
+      const next = must(setEdgeWeight(mixed, 'e1', undefined));
+
+      expect(getEdge(next, 'e1')).toEqual({ id: 'e1', source: 'v1', target: 'v2' });
+      expect(getEdge(next, 'e1')).not.toHaveProperty('weight');
+    });
+
+    it('remover um peso zero também deixa a aresta sem peso', () => {
+      const next = must(setEdgeWeight(mixed, 'e2', undefined));
+
+      expect(getEdge(next, 'e2')).not.toHaveProperty('weight');
+      expect(weightOf(next, 'e2')).toBeUndefined();
+    });
+
+    it('peso zero é um peso, não ausência de peso', () => {
+      const comZero = must(setEdgeWeight(mixed, 'e3', 0));
+
+      expect(getEdge(comZero, 'e3')).toHaveProperty('weight', 0);
+      expect(getEdge(comZero, 'e3')).not.toEqual(getEdge(mixed, 'e3'));
+    });
+
+    it('sequência de remoções e redefinições, sempre distinguindo 0 de ausente', () => {
+      let graph = mixed;
+      const passos: [number | undefined, boolean][] = [
+        [undefined, false], // sem peso
+        [0, true], // peso zero
+        [undefined, false], // sem peso de novo
+        [9, true],
+        [0, true],
+      ];
+      for (const [peso, temPeso] of passos) {
+        graph = must(setEdgeWeight(graph, 'e1', peso));
+        expect('weight' in getEdge(graph, 'e1')!).toBe(temPeso);
+        expect(weightOf(graph, 'e1')).toBe(peso);
+      }
+    });
+  });
+
+  describe('pesos inválidos', () => {
+    const invalidos: [string, unknown][] = [
+      ['NaN', Number.NaN],
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['-Infinity', Number.NEGATIVE_INFINITY],
+      ['texto', '3'],
+      ['null (não remove: só undefined remove)', null],
+      ['objeto', {}],
+      ['booleano', true],
+    ];
+
+    it.each(invalidos)('rejeita %s com INVALID_WEIGHT', (_nome, peso) => {
+      const antes = JSON.stringify(mixed);
+
+      expect(errorOf(setEdgeWeight(mixed, 'e1', peso as number))).toEqual({
+        code: 'INVALID_WEIGHT',
+        weight: peso,
+      });
+      expect(JSON.stringify(mixed)).toBe(antes);
+    });
+  });
+
+  describe('aresta inexistente', () => {
+    it('falha com EDGE_NOT_FOUND', () => {
+      expect(errorOf(setEdgeWeight(mixed, 'e9', 1))).toEqual({
+        code: 'EDGE_NOT_FOUND',
+        edgeId: 'e9',
+      });
+      expect(errorOf(setEdgeWeight(withVertices(2), 'e1', 1)).code).toBe('EDGE_NOT_FOUND');
+    });
+
+    it('aresta inexistente vence peso inválido', () => {
+      expect(errorOf(setEdgeWeight(mixed, 'e9', Number.NaN)).code).toBe('EDGE_NOT_FOUND');
+    });
+
+    it('uma aresta removida não pode mais receber peso', () => {
+      const semE1 = must(removeEdge(mixed, 'e1'));
+
+      expect(errorOf(setEdgeWeight(semE1, 'e1', 1)).code).toBe('EDGE_NOT_FOUND');
+    });
+  });
+
+  describe('estrutura preservada', () => {
+    it('mantém ids, extremos, ordem, vértices, orientação e contadores', () => {
+      const next = must(setEdgeWeight(mixed, 'e2', 9));
+
+      expect(next.edges.map((e) => e.id)).toEqual(['e1', 'e2', 'e3']);
+      expect(next.edges.map((e) => [e.source, e.target])).toEqual(
+        mixed.edges.map((e) => [e.source, e.target]),
+      );
+      expect(next.edges[0]).toBe(mixed.edges[0]);
+      expect(next.edges[2]).toBe(mixed.edges[2]);
+      // Todo o resto do grafo (vértices, orientação, contadores, nome) fica idêntico.
+      expect({ ...next, edges: [] }).toEqual({ ...mixed, edges: [] });
+    });
+
+    it('mantém a orientação dos arcos em grafo orientado', () => {
+      let directed = withVertices(2, true);
+      directed = connect(directed, 'v1', 'v2', 1);
+      directed = connect(directed, 'v2', 'v1', 2);
+
+      const next = must(setEdgeWeight(directed, 'e1', 10));
+
+      expect(next.directed).toBe(true);
+      expect(findEdge(next, 'v1', 'v2')).toEqual({ id: 'e1', source: 'v1', target: 'v2', weight: 10 });
+      expect(findEdge(next, 'v2', 'v1')).toEqual({ id: 'e2', source: 'v2', target: 'v1', weight: 2 });
+    });
+
+    it('funciona em aresta recém-criada e não atrapalha novas arestas', () => {
+      const criada = must(addEdge(withVertices(3), { source: 'v1', target: 'v2' }));
+      const ponderada = must(setEdgeWeight(criada.graph, criada.edge.id, 4));
+      const proxima = must(addEdge(ponderada, { source: 'v2', target: 'v3' }));
+
+      expect(weightOf(ponderada, 'e1')).toBe(4);
+      expect(proxima.edge.id).toBe('e2');
+    });
+  });
+
+  describe('sem mudança', () => {
+    it('devolve o mesmo grafo quando o peso não muda', () => {
+      expect(must(setEdgeWeight(mixed, 'e1', 5))).toBe(mixed); // mesmo peso
+      expect(must(setEdgeWeight(mixed, 'e2', 0))).toBe(mixed); // mesmo zero
+      expect(must(setEdgeWeight(mixed, 'e2', -0))).toBe(mixed); // -0 equivale a 0
+      expect(must(setEdgeWeight(mixed, 'e3', undefined))).toBe(mixed); // já sem peso
+    });
+  });
+
+  describe('imutabilidade e determinismo', () => {
+    it('não altera o grafo de entrada (entradas congeladas)', () => {
+      const antes = JSON.stringify(mixed);
+
+      must(setEdgeWeight(mixed, 'e1', 99));
+      must(setEdgeWeight(mixed, 'e1', undefined));
+      setEdgeWeight(mixed, 'e9', 1);
+
+      expect(JSON.stringify(mixed)).toBe(antes);
+    });
+
+    it('é determinístico e idempotente; vale o último peso', () => {
+      const a = must(setEdgeWeight(mixed, 'e3', 3));
+      const b = must(setEdgeWeight(mixed, 'e3', 3));
+
+      expect(a).toEqual(b);
+      expect(must(setEdgeWeight(a, 'e3', 3))).toBe(a);
+      expect(weightOf(must(setEdgeWeight(a, 'e3', 8)), 'e3')).toBe(8);
+    });
   });
 });

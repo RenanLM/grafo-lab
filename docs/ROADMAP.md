@@ -14,6 +14,7 @@ Legenda: ✅ concluída · 🔄 em andamento · ⬜ pendente
 | Identificadores de publicação (`android.package`, `ios.bundleIdentifier`) | Não definidos; só são exigidos para builds EAS/lojas (Fase 13). |
 | Licença do projeto | Não definida (a LICENSE do template da Expo não foi copiada). |
 | Repositório Git | A pasta não é um repositório. Rode `git init` antes do primeiro commit. |
+| Rótulo no `addVertex` | O `addVertex` (incremento 1) ainda aceita rótulo vazio, sem `trim` e sem limite, enquanto o `setVertexLabel` aplica as regras de 1 a 64 pontos de código. Alinhar exige trocar o retorno do `addVertex` para `Result`. Decidir antes do incremento 3 (o `parseGraph` do incremento 5 também precisará da mesma regra). |
 | `npm audit` | 16 achados (13 baixos, 3 altos) em dependências transitivas do ferramental do Expo/Jest (`zod`, `deepmerge`); o "conserto" sugerido rebaixaria para `expo@51`, então **não foi aplicado**. Reavaliar a cada atualização de SDK. |
 | Componente de bottom sheet | Decidir na tarefa 3.7 após ler a doc da SDK vigente (`@expo/ui` BottomSheet × alternativas). |
 
@@ -46,9 +47,9 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
 
 - ✅ 2.1 **Incremento 1:** fronteira do domínio (Jest em Node + regra de ESLint), tipos `Vertex`/`Edge`/`Graph`, `Result`/`GraphError`,
   `createGraph`, `addVertex`/`removeVertex`, `addEdge`/`removeEdge`, `getVertex`/`getEdge`/`findEdge`, `order`, `size`.
-- 🔄 2.2 **Incremento 2:**
+- ✅ 2.2 **Incremento 2:**
   - ✅ Parte A: grau (entrada, saída, total), vizinhança (sucessores, predecessores, vizinhos) e vértices isolados.
-  - ⬜ Parte B: `setVertexLabel` e `setEdgeWeight` (aguarda autorização).
+  - ✅ Parte B: `setVertexLabel` (trim, 1 a 64 pontos de código, repetidos permitidos) e `setEdgeWeight` (`undefined` remove, `0` é peso).
 - ⬜ 2.3 **Incremento 3:** lista de adjacência e matriz de adjacência (ausência de aresta ≠ peso zero).
 - ⬜ 2.4 **Incremento 4:** matriz de incidência com a convenção de sinais declarada para orientados e não orientados.
 - ⬜ 2.5 **Incremento 5:** `serializeGraph` e `parseGraph(unknown)` validando todas as invariantes; testes de propriedade

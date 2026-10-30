@@ -90,7 +90,15 @@ Pastas são criadas só quando necessárias.
    - **IDs estáveis e determinísticos**: o `Graph` guarda contadores (`nextVertexSeq`/`nextEdgeSeq`) e emite
      `v1, v2…` / `e1, e2…`. Um ID removido nunca é reaproveitado, então seleção, layout e histórico não apontam
      para o vértice errado. O `id` do grafo vem de quem persiste (o domínio não gera aleatoriedade).
-   - **Rótulos** são texto livre, sem unicidade; o padrão é A, B, …, Z, AA, AB… a partir do contador.
+   - **Rótulos**: o padrão é A, B, …, Z, AA, AB… a partir do contador. Pelo `setVertexLabel`: `trim()` e
+     depois 1 a 64 pontos de código Unicode (`MAX_VERTEX_LABEL_LENGTH`; um emoji vale 1 e "e" + acento
+     combinante valem 2), sem normalização Unicode e **sem exigir unicidade**. Erro `INVALID_VERTEX_LABEL`
+     com `reason` (`NOT_A_STRING`, `EMPTY`, `TOO_LONG`). Limitação: `trim()` não remove caracteres invisíveis
+     como U+200B. O `addVertex` ainda aceita qualquer texto (alinhamento pendente, ver ROADMAP).
+   - **Edição de propriedades** (`setVertexLabel`, `setEdgeWeight`): validam nesta ordem — alvo existe → valor
+     válido. `setEdgeWeight(g, id, undefined)` **remove** o peso; `0` é um peso; `null` é inválido. Se o valor
+     final é igual ao atual, devolvem o **mesmo grafo** (o editor pode ignorar o passo no histórico de
+     desfazer). Preservam ids, ordem, conexões e contadores; itens não alterados mantêm a identidade do objeto.
    - **Erros como valores** (`Result<T>` com `GraphError.code`), não exceções; o texto ao aluno é da interface.
      Ordem de validação do `addEdge`: origem existe → destino existe → laço → peso → duplicata.
    - **Grau e vizinhança** (`queries.ts`): vértice inexistente → `VERTEX_NOT_FOUND` (nunca "grau 0"); listas na
