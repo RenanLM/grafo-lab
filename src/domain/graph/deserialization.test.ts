@@ -32,6 +32,7 @@ import {
   errorOf,
   must,
   randomGraph,
+  randomHistory,
   readGolden as golden,
   seededRandom,
   triangleWithTail as U,
@@ -497,53 +498,12 @@ describe('ida e volta: parseGraphJson(serializeGraph(g)) é igual a g', () => {
   });
 
   describe('sequências determinísticas de operações', () => {
-    const ROTULOS = [undefined, 'Königsberg', '日本語', '🙂', ' com espaços ', 'x'.repeat(64), 'B'];
-    const PESOS = [undefined, 0, -3, 2.5, 7];
-
-    /** Aplica operações válidas e inválidas ao domínio e devolve o grafo depois de cada passo que mudou algo. */
-    function historico(seed: number, directed: boolean, passos: number): Graph[] {
-      const random = seededRandom(seed);
-      const sorteia = <T>(itens: readonly T[]): T => itens[Math.floor(random() * itens.length)]!;
-      let graph = createGraph({ id: `g${seed}`, name: seed % 3 === 0 ? 'Grafo: ação' : '', directed });
-      const grafos = [graph];
-      for (let passo = 0; passo < passos; passo++) {
-        const sorte = random();
-        const vertices = graph.vertices;
-        const arestas = graph.edges;
-        let proximo: Graph | undefined;
-        if (sorte < 0.25) {
-          const criado = addVertex(graph, sorteia(ROTULOS));
-          if (criado.ok) proximo = criado.value.graph;
-        } else if (sorte < 0.35 && vertices.length > 0) {
-          const removido = removeVertex(graph, sorteia(vertices).id);
-          if (removido.ok) proximo = removido.value;
-        } else if (sorte < 0.65 && vertices.length >= 2) {
-          const criada = addEdge(graph, { source: sorteia(vertices).id, target: sorteia(vertices).id, weight: sorteia(PESOS) });
-          if (criada.ok) proximo = criada.value.graph;
-        } else if (sorte < 0.75 && arestas.length > 0) {
-          const removida = removeEdge(graph, sorteia(arestas).id);
-          if (removida.ok) proximo = removida.value;
-        } else if (sorte < 0.85 && vertices.length > 0) {
-          const editado = setVertexLabel(graph, sorteia(vertices).id, sorteia(ROTULOS) ?? 'Z');
-          if (editado.ok) proximo = editado.value;
-        } else if (arestas.length > 0) {
-          const editada = setEdgeWeight(graph, sorteia(arestas).id, sorteia(PESOS));
-          if (editada.ok) proximo = editada.value;
-        }
-        if (proximo !== undefined && proximo !== graph) {
-          graph = proximo;
-          grafos.push(graph);
-        }
-      }
-      return grafos;
-    }
-
     it.each([false, true])('cada grafo intermediário de 60 sequências volta idêntico (orientado = %s)', (directed) => {
       let total = 0;
       let comPeso = 0;
       let comLacuna = 0;
       for (let seed = 1; seed <= 60; seed++) {
-        for (const graph of historico(seed, directed, 60)) {
+        for (const graph of randomHistory(seed, directed, 60)) {
           const texto = serializeGraph(graph);
 
           expect(parseGraphJson(texto)).toStrictEqual({ ok: true, value: graph });
@@ -561,7 +521,7 @@ describe('ida e volta: parseGraphJson(serializeGraph(g)) é igual a g', () => {
     });
 
     it('a mesma semente gera os mesmos grafos', () => {
-      expect(historico(7, true, 60)).toStrictEqual(historico(7, true, 60));
+      expect(randomHistory(7, true, 60)).toStrictEqual(randomHistory(7, true, 60));
     });
   });
 

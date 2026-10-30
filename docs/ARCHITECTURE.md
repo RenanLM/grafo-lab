@@ -65,6 +65,60 @@ scripts/               gerar-icones.py (dev; PyMuPDF)
 
 Pastas são criadas só quando necessárias.
 
+## Contrato do domínio de grafos (resumo da Fase 2)
+
+O que `src/domain/graph` promete à camada de estado e à interface (Fase 3 em diante). Este quadro é um mapa: o detalhe
+de cada item está na seção indicada, e **este resumo não repete regras**.
+
+| Tema | Contrato | Detalhe |
+| --- | --- | --- |
+| Modelo matemático | `Graph` imutável: grafo simples (sem laços nem arestas repetidas), orientação global, peso opcional por aresta (ausente ≠ 0), ids estáveis e **nunca reaproveitados** (contadores), ordem de inserção, sem posição de vértices | Decisão 7 |
+| Operações | `createGraph`, `addVertex`/`removeVertex`, `addEdge`/`removeEdge`, `setVertexLabel`, `setEdgeWeight`, graus e vizinhança; devolvem `Result`, nunca lançam e devolvem o **mesmo grafo** quando nada muda | Decisão 7 |
+| Quatro representações | `adjacencyList`, `adjacencyMatrix` (+ `adjacencyAsNumbers`), `incidenceMatrix`, `incidenceList`: **derivadas** do `Graph` na hora, sem estado próprio; ausência, sem peso e peso zero nunca se confundem | Representações: visão comparativa |
+| Serialização | `serializeGraph(graph, { pretty? })`: JSON v1 canônico (chaves em ordem fixa, arrays na ordem de inserção, `weight` só quando existe, contadores como estão, nada de interface) e determinístico | Formato de persistência |
+| Leitura | `parseGraph(unknown)` e `parseGraphJson(text)`: fronteira de dados não confiáveis; recusa o documento inteiro ao primeiro problema, sem corrigir nada; erros `INVALID_DOCUMENT { path, reason, cause? }` e `UNSUPPORTED_SCHEMA_VERSION` | Leitura e validação |
+| Compatibilidade | o leitor v1 só lê v1; versão maior é `UNSUPPORTED_SCHEMA_VERSION`, sempre antes de qualquer outro defeito; arquivos de referência imutáveis; migrações futuras por leitor de versão | Compatibilidade de versões |
+| API pública | `index.ts` exporta 57 nomes (32 valores e 25 tipos); helpers internos (`weightField`, `isValidWeight`, `normalizeWeight`, `checkLabel`) continuam privados; a lista é pinada por teste e as assinaturas, o vocabulário de erros e os motivos por verificação de tipos | `public-api.test.ts` |
+
+**Separação entre domínio e apresentação.**
+- As dependências só apontam para baixo (Camadas). `src/domain/**` não importa React, React Native, Expo nem Zustand
+  (ESLint barra e o Jest roda o domínio em Node puro). A interface importa de `@/domain/graph` (o `index.ts`), nunca de
+  um módulo interno.
+- O `Graph` é a **única fonte da verdade matemática**. Posição, seleção, câmera e estado visual ficam fora dele
+  (`GraphLayout`, Fase 3, indexado por `VertexId` estável) e nunca entram no documento v1. Mudar a posição de um vértice
+  não muda nenhum resultado matemático.
+- Estado e histórico guardam `Graph` imutáveis (as operações compartilham o que não mudou e devolvem o mesmo grafo
+  quando nada muda, o que permite não registrar passos vazios). As representações **não** são guardadas: calculam-se
+  a partir do `Graph`, sob demanda.
+- Erros são valores com `code`; o texto em português ao aluno é da interface.
+
+**Limitações técnicas** (todas documentadas na seção do tema):
+- Só grafos simples e orientação global; `capacity` (fluxos) fica para a Fase 12.
+- Rótulo: `trim()` não remove caracteres invisíveis como U+200B e não há normalização Unicode.
+- Matrizes são Θ(V²) e Θ(V·E): o limite de tamanho para a interface só será fixado depois de medir em Hermes e em
+  Android modesto (tarefa 4.6). Todas as medições do projeto são de Node/V8 num PC.
+- Persistência: ids de elementos removidos não podem ser reconstruídos de um documento adulterado; chave repetida no
+  texto JSON vale a última; BOM é recusado; teto técnico de 94 906 265 vértices na leitura (distinto dos limites de
+  produto); `Proxy` não é isolado por `parseGraph` (use o texto).
+- iOS não é testável no ambiente atual (Windows).
+
+**Responsabilidades da futura camada de persistência** (Fase 5, `expo-sqlite`; Fase 13, importar e exportar), que o
+domínio **deliberadamente não assume**:
+1. Escolher e aplicar os **limites de produto** (`maxTextLength`, `maxVertices`, `maxEdges`) por aparelho e por
+   origem do arquivo, depois de medir; o domínio não tem padrão.
+2. Ler os bytes, decodificar UTF-8 (retirando o BOM, se quiser), limitar o tamanho do arquivo em bytes e só então chamar
+   `parseGraphJson`.
+3. Decidir o `id` do grafo na importação (manter, gerar outro ou perguntar em caso de conflito): o domínio nunca o troca.
+4. Gravar com atomicidade (transação) e manter cópia antes de qualquer atualização de formato; arquivo de versão mais
+   nova **nunca** é regravado pelo app antigo.
+5. Se for preciso detectar adulteração de contadores, proteger a integridade do arquivo (hash ou assinatura): o formato
+   não consegue.
+6. Guardar o `GraphLayout`, a câmera e a seleção em documentos próprios ligados ao `graph.id`, e metadados (datas,
+   miniatura, progresso) fora do documento do grafo.
+7. Aplicar as migrações de documento (seção Compatibilidade de versões) e as migrações do esquema SQL (versionadas,
+   independentes entre si).
+8. Traduzir cada `GraphError` em mensagem em português para o aluno.
+
 ## Decisões
 
 1. **Rotas finas, telas em `features/`** — `src/app` só importa e exporta a tela; mantém o roteamento
@@ -377,10 +431,17 @@ Cada uma é `undefined` (sem limite) ou um inteiro seguro ≥ 0 (`0` vale). Outr
 `reason: 'INVALID_OPTION'` e `path: 'options.maxVertices'` (etc.): é erro de **quem chama**, devolvido como valor para
 manter a regra "nunca lança". Propriedades desconhecidas nas opções são ignoradas.
 
-Há um único **teto técnico**, que não é política do app: `vertices` com mais de ⌊√(2⁵³−1)⌋ = 94 906 265 elementos é
-`LIMIT_EXCEEDED`, porque a chave exata do par de extremos (`origem·V + destino`, ver Complexidade) deixaria de ser exata
-acima disso. Está muito além do que cabe em memória (cada vértice ocupa dezenas de bytes e o texto passaria de 2 GB) e
-vale junto de `maxVertices` (vence o menor).
+**Limite técnico × limites de produto.** São coisas diferentes:
+- `maxVertices`, `maxEdges` e `maxTextLength` são **limites de produto** (política): o domínio não os define. A camada
+  de persistência os escolherá, por aparelho ou por origem do arquivo, depois de medir em Hermes e em Android modesto
+  (ROADMAP, tarefa 4.6).
+- Há um único **limite técnico**, da implementação: `vertices` com mais de ⌊√(2⁵³−1)⌋ = 94 906 265 elementos é
+  `LIMIT_EXCEEDED`. Ele vem da codificação numérica do par de extremos (`origem·V + destino`), que detecta arestas
+  repetidas em Θ(V + E) e só é exata em `number` enquanto o produto cabe em 2⁵³. Está muito além do que cabe em memória
+  (cada vértice ocupa dezenas de bytes e o texto passaria de 2 GB), vale junto de `maxVertices` (vence o menor) e foi
+  **mantido de propósito**: trocar a codificação por chaves de texto o removeria, mas custaria ≈ 1,6× o tempo da
+  validação medido (ver Medição) sem benefício no escopo previsto. Se um dia o produto precisar de mais, troca-se a
+  codificação, sem mudar o formato nem a API.
 
 **Regras do esquema v1**
 
@@ -457,12 +518,29 @@ parseGraphJson(text, { maxTextLength: 1_000_000 })  // text.length > 1 000 000, 
 // { ok: false, error: { code: 'INVALID_DOCUMENT', path: '', reason: 'LIMIT_EXCEEDED' } }
 ```
 
-**Segurança.**
+**Segurança: o que cada tipo de entrada recebe.** As garantias dependem de **como** o dado chega:
+
+| Entrada | O que a leitura garante | O que ela não garante |
+| --- | --- | --- |
+| **Texto JSON** (`parseGraphJson`) | `maxTextLength` conferido antes do `JSON.parse` (se configurado); o `JSON.parse` só produz **dados puros** (sem getters, proxies, buracos ou protótipos próprios; `__proto__` vira propriedade própria e é recusado); toda a validação; erro de sintaxe e aninhamento que estoura o motor viram `Result` | custo Θ(L) do próprio `JSON.parse` sem `maxTextLength`; chave repetida no texto (vale a última); BOM |
+| **Objeto JavaScript** recebido como `unknown` (`parseGraph`) | a mesma validação; objeto que não é simples, array esparso e propriedade que não é dado são recusados; o resultado não compartilha nada com a entrada; nunca lança | confiança em código: um objeto exótico pode fazer mais do que ser dado (ver Proxy) |
+| **Objeto com getters ou setters** | nunca são executados: `UNREADABLE`, com o `path` da propriedade | — |
+| **Proxy** | as armadilhas **são executadas** (ver abaixo); exceção vira `UNREADABLE`; leitura única por propriedade | **não é uma sandbox** |
+| **Documento inválido** | `Result` de erro com `path` e `reason`, sem texto do documento; nunca um grafo parcial | — |
+| **Limites configuráveis** | `maxVertices`, `maxEdges`, `maxTextLength` são aplicados antes de ler os elementos / antes do parse | valores padrão: são política de quem importa (ver Limite técnico × limites de produto) |
+
+Para dados realmente não confiáveis (arquivo, rede, área de transferência) passe o **texto** a `parseGraphJson`; use
+`parseGraph` com objetos que o próprio app produziu ou já decodificou.
+
 - **Leitura defensiva.** Só se leem **propriedades próprias de dados**, por descritor, **cada uma uma vez**; os valores
-  lidos é que são validados e copiados. Getters/setters nunca são executados (`UNREADABLE`), `[[Get]]` nunca é usado (um
-  proxy só vê `ownKeys`, `getPrototypeOf` e `getOwnPropertyDescriptor`) e um proxy que muda de valor entre leituras não
-  faz o resultado divergir do que foi validado. Exceção durante a inspeção (proxy que lança ou revogado) vira
-  `UNREADABLE`, com o `path` do objeto.
+  lidos é que são validados e copiados. Getters/setters nunca são executados (`UNREADABLE`) e `[[Get]]` nunca é usado.
+- **Proxy: as armadilhas executam.** Operações reflexivas sobre um `Proxy` **executam as armadilhas dele**. A leitura
+  aciona `ownKeys`, `getPrototypeOf` e `getOwnPropertyDescriptor`; um teste registra todas as armadilhas e confere que
+  são só essas três (`get`, `has`, `set`, `defineProperty`, `deleteProperty` etc. nunca são acionadas). Mas o código do
+  próprio proxy roda: pode ter efeitos colaterais, lançar (vira `UNREADABLE`, com o `path` do objeto), devolver valores
+  diferentes a cada chamada (a leitura única impede que isso mude o resultado validado) ou chamar `parseGraph` de volta
+  (o módulo não tem estado compartilhado). A leitura **não impede** que esse código faça o que quiser, nem que demore,
+  nem que finja um array sem fim quando não há `maxVertices`/`maxEdges`.
 - **Objetos simples.** Protótipo nulo ou um protótipo-raiz (o `Object.prototype` de qualquer realm); instâncias de
   classe, `Map`, `Date` e arrays no lugar de objetos são `NOT_AN_OBJECT`. Propriedades herdadas são ignoradas. Chaves
   desconhecidas, símbolos e propriedades ocultas recusam o documento, o que inclui `__proto__`, `constructor` e
@@ -503,8 +581,8 @@ parseGraphJson(text, { maxTextLength: 1_000_000 })  // text.length > 1 000 000, 
   referência. "Esperado" porque a tabela de hash tem custo médio O(1) por operação.
 - **Total Θ(L + V + E).** Espaço além do `JSON.parse`: Θ(V + E) (listas de elementos lidos, `Set`, `Map` e o `Graph`
   devolvido). O tamanho **real** do texto escapado entra em L: ver a fórmula de tamanho na seção anterior (≈ 45 a 49
-  caracteres por elemento com rótulos curtos, ≈ 70 com rótulos de 64 caracteres e pesos). Um texto com escapes
-  (`ç`, `🙂`) é maior que o canônico, mas o custo continua linear em L.
+  caracteres por elemento com rótulos curtos, ≈ 70 com rótulos de 64 caracteres e pesos). Um texto em que acentos e
+  emojis vêm escritos como escapes com barra invertida é maior que o canônico, mas o custo continua linear em L.
 
 **Medição pontual** (Node 24.12, i5-11400H, 16 GB; um processo por estratégia e tamanho, 3 rodadas alternadas; E ≈ 4V,
 `--expose-gc`; tempo = mediana; "curto" = rótulos A, B… sem pesos; "longo" = rótulos de 64 caracteres e peso em toda
@@ -533,6 +611,47 @@ decodificado; `parseGraphJson` = texto → grafo.
 - **Estes números são de Node/V8 num PC: não valem para Android ou iOS (Hermes) e não definem limite do aplicativo.**
   A decisão dos limites padrão (`maxVertices` etc.) fica para a camada de persistência, depois da medição em aparelho
   modesto (ROADMAP, Fase 4).
+
+## Compatibilidade de versões e migrações futuras
+
+**Regras em vigor** (esquema v1; verificadas por `persistence-contract.test.ts`):
+1. `schemaVersion` identifica o layout do documento e é a primeira chave. O leitor v1 **só lê v1**.
+2. Versão numérica diferente de 1 → `UNSUPPORTED_SCHEMA_VERSION { version, supported }`, e **a versão vence qualquer outro
+   defeito** do documento (campos novos, campos ausentes, tipos errados), porque decide como ler o resto. Provado com
+   dois documentos fictícios da v2 (um **aditivo**, com `capacity`, `kind` e `layout`; outro **reestruturado**, com
+   campos renomeados e movidos) e com 900 corrupções aleatórias de arquivos de referência. Versão que não é número é
+   tipo errado, não "versão futura". **Exceção documentada:** a raiz é inspecionada antes da versão, então um objeto
+   exótico (getter em campo do esquema, proxy que lança) dá `UNREADABLE` antes; documento vindo de texto JSON nunca cai
+   aí.
+3. **Sem migração silenciosa e sem "melhor esforço":** nenhum campo é ignorado e nenhum grafo parcial é devolvido (o
+   resultado de erro tem só `ok` e `error`). Só o número da versão separa o aceito do recusado, nos dois sentidos: um
+   v1 válido com o número trocado para 2 é recusado, e um v2 com o número trocado para 1 também (campos desconhecidos).
+4. **Arquivos de referência são contratos.** `golden/v1/` é escrito à mão e **nunca regenerado**; uma versão nova ganha
+   `golden/v2/` e a v1 não muda. O teste de contrato lista a pasta e fixa os nomes dos arquivos: acrescentar, remover
+   ou renomear um arquivo de referência exige mudar o teste, ou seja, uma decisão explícita e justificada no
+   ROADMAP. A verificação de conteúdo exato (serializador e leitor conferem o texto byte a byte, e o leitor ainda o
+   compara com grafos escritos à mão em outro arquivo) é **suficiente**; hashes não acrescentariam proteção, porque
+   alterar o arquivo e o serializador e o grafo escrito à mão juntos já é a decisão explícita que se quer tornar visível.
+5. **Quando exigir versão nova:** qualquer mudança no conjunto de campos ou no significado de um campo, inclusive
+   acrescentar um campo opcional (o leitor anterior rejeita campos desconhecidos de propósito).
+
+**Estratégia futura de migrações** (planejada, **não implementada**: só existe a v1):
+- **Um leitor por versão.** `parseGraph` continua sendo `unknown → Result<Graph>`. Ele inspeciona a raiz, lê o
+  `schemaVersion` (como hoje) e despacha para o leitor daquela versão (`readV1`, depois `readV2`…). **Todo leitor
+  devolve o `Graph` atual**: o leitor v1 de um app v2 lê um documento v1 e produz um `Graph` em que os campos novos
+  ficam como o modelo define para "não informado" (por exemplo, aresta sem `capacity`, **nunca** 1 nem infinito). Assim os
+  erros de leitura sempre têm `path` relativo ao documento que foi de fato lido, e não a um documento intermediário.
+- **Leitores antigos ficam congelados**, com os testes e os arquivos de referência da sua versão; só se acrescenta.
+- **A escrita é sempre na versão atual** (`GRAPH_SCHEMA_VERSION`). O conjunto das versões **lidas** é o campo `supported`
+  do erro (hoje `[1]`, depois `[1, 2]`), e o app antigo que abre arquivo mais novo recebe `UNSUPPORTED_SCHEMA_VERSION`,
+  explica ao aluno que o arquivo vem de uma versão mais nova e **não o regrava**.
+- **Ler um arquivo antigo não o reescreve.** Quem decide regravar na versão nova (e guardar cópia antes) é a camada de
+  persistência.
+- **Lista de verificação de uma mudança de versão:** (1) aumentar `GRAPH_SCHEMA_VERSION`; (2) criar `golden/v<n>/` à
+  mão; (3) escrever o leitor `readV<n>` e seus testes; (4) manter o leitor anterior e os arquivos anteriores sem
+  alteração; (5) estender o teste de contrato para que **todo** arquivo de **toda** versão seja lido pelo
+  `parseGraph` atual e regravado na versão atual; (6) atualizar esta seção e o ROADMAP.
+- As migrações do **esquema SQL** (`expo-sqlite`, Fase 5) são independentes das do documento.
 
 ## Estratégia de testes
 
@@ -571,6 +690,24 @@ decodificado; `parseGraphJson` = texto → grafo.
   trocados etc.) todas foram detectadas; duas sobreviveram na primeira rodada (array no lugar de objeto, protegido
   também pela checagem de protótipo, e a checagem barata do comprimento do id, que só muda o custo) e ganharam testes
   próprios.
+- **Contrato de persistência** (`persistence-contract.test.ts`, Incremento 4.3): protege o que uma versão futura do
+  formato não pode quebrar e **não repete** os testes de formato (4.1) nem de validação (4.2). Trabalha só com a API
+  pública e uma coleção de 31 grafos (vazios, isolados, os de referência, textos e pesos nos limites, aleatórios e
+  resultados de histórias de edição). Contratos: (1) serializador e leitor são inversos, com ponto fixo; (2) o texto
+  cumpre a especificação do v1 segundo um verificador escrito à parte e a pasta `golden/` tem só os arquivos
+  esperados; (3 a 8) **distinção por aspecto**: para cada aspecto (id e nome do grafo, orientação, ordem dos vértices e
+  das arestas, rótulo, peso ausente × zero × valor, extremos, cada contador) um grafo que difere só nele gera texto
+  diferente e é lido de volta exatamente; (6 e 9) **25 histórias de 12 gerações** de editar, salvar e reler comparadas
+  com uma cópia que nunca passou pelo texto: grafo, texto e as quatro representações iguais, contadores sem recuar e
+  todo id novo vindo do contador anterior em diante; (10) determinismo, inclusive sem `Math.random`, `Date.now`,
+  `sort`, `localeCompare` e `toLocaleString`; versões futuras (v2 fictícias); nada é corrigido em silêncio; e o
+  inventário das armadilhas que um `Proxy` executa.
+- **API pública** (`public-api.test.ts`): a lista exata dos 32 valores exportados (nada a mais, nada a menos),
+  helpers internos fora, assinaturas de `serializeGraph`, `parseGraph` e `parseGraphJson` e o vocabulário de erros
+  (8 códigos, 15 motivos de documento, 3 de rótulo, 5 causas) fixados por `satisfies` (conferido pelo `tsc`).
+  Em **mutação dirigida** (32 mutações no serializador, no leitor e no `index.ts`, escolhidas porque as verificações
+  são novas) todas foram detectadas só por estas duas suítes; uma sobreviveu na primeira rodada (rótulo normalizado em
+  silêncio, regra de validação da 4.2) e ganhou um teste de contrato.
 - **Componentes/rotas:** Jest + React Native Testing Library (`jest-expo`); rotas via `renderRouter`.
 - **Tema:** contraste calculado a partir dos tokens.
 - **Em dispositivo (manual):** gestos pinch/pan/drag, safe areas, comportamento da barra de abas nativa,

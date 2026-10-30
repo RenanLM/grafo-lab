@@ -38,7 +38,7 @@ Legenda: ✅ concluída · 🔄 em andamento · ⬜ pendente
 - **Não verificado:** iOS (sem macOS), aparelho físico, TalkBack/VoiceOver, orientação paisagem (travada em retrato).
   O Jest não exercita a barra de abas nativa; ela só foi vista no emulador.
 
-## Fase 2 — Modelo matemático 🔄
+## Fase 2 — Modelo matemático ✅ (aguarda revisão)
 
 Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Zustand. Regras do modelo em
 `ARCHITECTURE.md` (decisão 7). Fora do recorte por falta de uso agora: `capacity` (→ Fase 12) e `GraphLayout` (→ Fase 3).
@@ -86,7 +86,7 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
       `ARCHITECTURE.md`. Não define limite do aplicativo.
     - **Consolidação:** `index.ts` reagrupado por assunto (50 nomes antes e depois, sem duplicados) e `completeGraph`
       unificado em `test-helpers.ts` (havia 3 cópias).
-- 🔄 2.4 **Incremento 4 — persistência** (cada etapa só começa com autorização):
+- ✅ 2.4 **Incremento 4 — persistência** (concluído; cada etapa só começou com autorização):
   - ✅ 4.1 **Serialização** (`serialization.ts`): `serializeGraph(graph, { pretty? })` produz o JSON canônico do esquema
     v1: chaves em ordem fixa, arrays na ordem de inserção, `weight` só quando existe (sem peso, zero e negativo ficam
     distintos), contadores `nextVertexSeq`/`nextEdgeSeq` gravados como estão (ids removidos não são reaproveitados),
@@ -102,12 +102,19 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
     valor padrão no domínio. Erros novos: `INVALID_DOCUMENT { path, reason, cause? }` e `UNSUPPORTED_SCHEMA_VERSION`.
     Ida e volta com a serialização, quatro representações e propriedades de grau conferidas; 71 mutações dirigidas
     detectadas. Regras, erros, limitações e custo em `ARCHITECTURE.md`.
-  - ⬜ 4.3 **Consolidação e compatibilidade** (proposta, aguarda autorização): suíte de contrato entre serialização e
-    leitura; arquivos de referência *imutáveis* (hash conferido) e corpus de documentos inválidos também em arquivos;
-    fixture de documento única para os testes; ensaio da política de versões com um documento v2 de mentira (o leitor
-    v1 o recusa por versão, sem migração); revisão de `index.ts`. A medição em Hermes/Android antes de fixar limites
-    continua na Fase 4.
-- Critério: `npm test` cobre o domínio e passa sem nenhum import de React Native.
+  - ✅ 4.3 **Consolidação e compatibilidade**: `persistence-contract.test.ts` (contrato entre `serializeGraph` e
+    `parseGraph`/`parseGraphJson` sobre 31 grafos: formato v1 conferido por verificador à parte, distinção por aspecto,
+    25 histórias de 12 gerações de editar/salvar/reler idênticas às que nunca foram salvas, determinismo sem relógio,
+    sorteio, ordenação nem localidade, nada corrigido em silêncio) e `public-api.test.ts` (lista exata dos 32 valores
+    exportados, helpers internos privados, assinaturas e vocabulário de erros fixados pelo `tsc`). **Compatibilidade de
+    versões:** documentos fictícios da v2 (aditivo e reestruturado) são `UNSUPPORTED_SCHEMA_VERSION`, a versão vence
+    qualquer outro defeito, sem migração silenciosa nem grafo parcial. Arquivos de referência de `golden/v1/` tratados
+    como contrato (inventário fixado; conteúdo exato conferido em três lugares, sem hashes). Documentação: resumo do
+    contrato do domínio, tipos de entrada × garantias (Proxy executa armadilhas; não é sandbox), limite técnico ×
+    limites de produto, responsabilidades da camada de persistência e estratégia de migrações (não implementada) em
+    `ARCHITECTURE.md`. Sem mudança de API nem de comportamento; `randomOperation`/`randomHistory` foram extraídos
+    para `test-helpers.ts`.
+- Critério: `npm test` cobre o domínio e passa sem nenhum import de React Native. **Atendido** (ver 4.3).
 
 **Custos das representações** (V = vértices, E = arestas, d(v) = grau; análise teórica; as medições pontuais em Node
 estão em `ARCHITECTURE.md`):
@@ -123,27 +130,209 @@ estão em `ARCHITECTURE.md`):
 A etapa 3.4B registrou a tabela comparativa e as medições em `ARCHITECTURE.md`; limites de tamanho para a interface
 só depois de medir em Hermes e em Android com poucos recursos (tarefa 4.6).
 
-## Fase 3 — Canvas touch-first ⬜
+## Fase 3 — Editor visual de grafos (canvas touch-first) ⬜ — **proposta detalhada, aguarda autorização**
 
-Dependências desta fase (via `npx expo install`): `react-native-svg`, `react-native-gesture-handler`,
-`react-native-reanimated`, `react-native-worklets`, `zustand`. Todas listadas como incluídas no Expo Go da SDK 58.
+Nada desta fase foi iniciado. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
+quando houver regra nova e uma mensagem de commit. Tamanhos: **S** (um módulo puro e seus testes) e **M** (lógica +
+interface). Ordem como no prompt mestre: renderizar, criar, conectar, selecionar; **depois** arrastar, deslocar e
+ampliar, em incrementos separados.
 
-- ⬜ 3.1 Instalar e configurar gesture-handler/reanimated; avaliar o React Compiler (ligado no template) com worklets.
-- ⬜ 3.2 Câmera: `worldToScreen` / `screenToWorld` puros (zoom + pan) com testes.
-- ⬜ 3.3 Store Zustand do editor (modo, seleção, câmera, layout) + histórico desfazer/refazer.
-- ⬜ 3.4 Renderizador SVG atrás de uma interface (`GraphRenderer`) que permita trocar por Skia.
-- ⬜ 3.5 Modo **Adicionar vértice** + hit-testing puro e testado.
-- ⬜ 3.6 Modo **Conectar** com prévia e cancelamento.
-- ⬜ 3.7 Modo **Selecionar**, toque longo (editar/excluir com confirmação), bottom sheet de propriedades.
-- ⬜ 3.8 Arrastar vértices (sem mover a câmera).
-- ⬜ 3.9 Pan e pinch no fundo; **centralizar** e **ajustar ao grafo**.
-- ⬜ 3.10 Verificação manual de conflito pinch/pan/drag em Android e iOS.
-- Critério: tocar depois de zoom/pan acerta o vértice esperado; os modos não se confundem.
+**Princípios**
+- **`Graph` e `GraphLayout` separados.** `GraphLayout = { positions: Record<VertexId, { x, y }> }` em **coordenadas de
+  mundo**, indexado pelo id estável do vértice; não entra no `Graph` nem no documento v1. Posição e câmera nunca mudam um
+  resultado matemático.
+- **Mundo ≠ tela.** Toda conversão passa por `worldToScreen`/`screenToWorld`. O tamanho de toque é em **pixels de tela**
+  (alvo ≥ 48 dp) e independe do zoom; o hit-testing opera em coordenadas de tela convertidas.
+- **Lógica pura fora de componentes e de stores.** Câmera, layout, geometria, hit-testing, transições do editor e
+  histórico vivem em `src/features/graph-editor/core/**`: TypeScript puro, sem React, React Native, Expo nem Zustand
+  (mesma regra de ESLint do domínio) e testado em Node. A store Zustand só **chama** essas funções e guarda o estado;
+  os componentes só desenham e traduzem gestos em ações.
+- **Fonte da verdade = `{ graph, layout }` imutáveis.** As quatro representações **não** são guardadas: derivam do
+  `graph` sob demanda (já são puras, Fase 2).
+- **Erros do domínio viram mensagens em português** em um único módulo (`GraphError` → texto), testado.
+- **Renderizador atrás de interface** (`GraphRenderer`), para trocar `react-native-svg` por Skia sem tocar nas camadas
+  de baixo.
+- **Gestos por modo explícito** (Selecionar / Adicionar vértice / Conectar), para reduzir conflito; a decisão do que
+  um toque significa é uma função pura `(modo, ponto, camada) → ação`.
+- **Histórico por instantâneos** `{ graph, layout }` (imutáveis, compartilham o que não mudou): desfazer restaura
+  também os **contadores** de ids (o próximo rótulo padrão volta a ser o que o aluno viu, ex.: desfazer a criação de C e
+  criar outro vértice dá C de novo); passo que não muda nada (`set*` devolve o mesmo grafo) não é registrado; um arrasto
+  inteiro é **um** passo; limite de 100 passos; o histórico não é persistido nesta fase. A câmera e a seleção ficam
+  fora do histórico.
 
-## Fase 4 — Representações ⬜
+**Pontos a decidir antes de começar** (recomendação em negrito)
+1. **Expo Go × development build.** O Expo Go da SDK 58 não foi confirmado nas lojas. **Seguir no Expo Go se estiver
+   disponível; senão, development build (`expo-dev-client`)**; decidir na 3.0.
+2. **Onde mora o código puro do editor:** **`src/features/graph-editor/core/` com regra de ESLint e projeto Jest em Node
+   próprios** (recomendado) × `src/domain/layout/`. A segunda mistura posição visual com o domínio matemático.
+3. **Orientação do grafo no editor:** **escolher ao criar o grafo ("Novo grafo": orientado ou não) e não oferecer troca
+   depois** (a decisão 7 já adiou `setDirected`: orientado → não orientado pode gerar arestas repetidas) × implementar
+   `setDirected` no domínio com tratamento de conflitos.
+4. **Bottom sheet:** `@expo/ui` BottomSheet × componente próprio com `Modal`/`Animated`; decidir na 3.8 depois de ler a
+   doc da SDK vigente (pergunta em aberto desta página).
+5. **Rótulos no SVG:** `Text` do `react-native-svg` × `Text` do React Native sobreposto. O primeiro não acompanha o
+   tamanho de fonte do sistema; **decidir na 3.5 com um teste no emulador a 200 % de fonte**.
+6. **React Compiler × worklets:** avaliar na 3.0 (decisão 6 de `ARCHITECTURE.md`); se houver conflito, desligar o
+   compilador só nos arquivos de worklets.
+7. **Limite de legibilidade das matrizes no painel** (provisório, ≈ 40 vértices): é de legibilidade, **não** de
+   desempenho; o limite de produto continua dependendo da medição em dispositivo (tarefa 4.6).
 
-- ⬜ 4.1 Lista de adjacência. ⬜ 4.2 Matriz de adjacência (orientação e pesos). ⬜ 4.3 Matriz de incidência com convenção de sinais declarada.
-- ⬜ 4.4 Graus e propriedades. ⬜ 4.5 Painéis na UI (bottom sheet) sempre derivados do mesmo `Graph`.
+**Incrementos**
+
+- ⬜ **3.0 Dependências e infraestrutura** (S). Instalar com `npx expo install`: `react-native-svg`,
+  `react-native-gesture-handler`, `react-native-reanimated`, `react-native-worklets` e `zustand`; `GestureHandlerRootView`
+  no layout raiz; regra de ESLint e projeto Jest para `src/features/graph-editor/core`; decisões 1 e 6.
+  - *A confirmar na instalação* (a doc do Expo para a SDK 58 não traz a versão empacotada nem a configuração mínima do
+    gesture-handler, não cita `Line`, `Text` e `G` do SVG e não trata dos nomes atuais da API de worklets, como
+    `scheduleOnRN`): README do gesture-handler, versões que o `expo install` escolher, elementos do SVG e
+    compatibilidade com o React Compiler.
+  - *Aceite:* `npx expo install --check` e `expo-doctor` limpos; `npm run check` passa; o app abre no emulador `Pixel_6`
+    (tela de teste **descartada**, não vai para o commit) com um `Svg`, um `Gesture.Tap` e uma animação do Reanimated.
+  - *Testes:* o `check` existente; um teste de fronteira que prova que `core` não aceita import de React.
+  - *Commit:* `chore(editor): add svg, gesture handler, reanimated, worklets and zustand`
+
+- ⬜ **3.1 Câmera pura** (S). `camera.ts`: `Camera = { x, y, scale }` (translação e escala uniforme, sem rotação),
+  `worldToScreen`, `screenToWorld`, `panBy`, `zoomAt(câmera, pontoFocalNaTela, fator)`, limites de escala (provisórios:
+  0,25 a 4, a confirmar em dispositivo), `fitToBounds(retângulo, viewport, margem)` e `centerOn`.
+  - *Aceite:* ida e volta mundo → tela → mundo devolve o ponto (erro < 1e-9); o ponto focal do zoom não se move; ajustar
+    ao grafo mostra todos os vértices dentro da margem; viewport de tamanho zero e grafo vazio não geram `NaN`.
+  - *Testes:* exemplos calculados à mão, propriedades com sementes fixas, casos degenerados; mutação dirigida nas
+    fórmulas (sinal, ordem escala/translação, foco).
+  - *Commit:* `feat(editor): add pure camera transforms`
+
+- ⬜ **3.2 `GraphLayout` e posicionamento** (S). `GraphLayout` imutável; `placeVertex`, `moveVertex`,
+  `removePosition`, `reconcileLayout(graph, layout)` (descarta posições órfãs e posiciona vértices sem posição),
+  `boundsOf` e `circularLayout(graph)` determinístico (para exemplos e grafos lidos sem layout).
+  - *Aceite:* editar o `Graph` nunca desloca posições (seguem o id, não o índice); `reconcileLayout` é idempotente;
+    mesmo grafo, mesmo layout; entradas não são alteradas.
+  - *Testes:* imutabilidade (entradas congeladas), grafos aleatórios com remoções, determinismo.
+  - *Commit:* `feat(editor): add GraphLayout and deterministic placement`
+
+- ⬜ **3.3 Geometria e hit-testing puros** (M). `edgeGeometry` (reta de borda a borda, ponta de seta no destino, **arcos
+  opostos em curvas deslocadas** para não se sobreporem, âncora do peso), `hitTestVertex`, `hitTestEdge`.
+  - *Aceite (critério da fase):* **depois de zoom e pan, tocar acerta o vértice esperado**; a tolerância é fixa em
+    pixels de tela; vértices sobrepostos desempatam por distância e depois por ordem de inserção; toque no vazio não
+    acerta nada; aresta só é acertada fora dos vértices.
+  - *Testes:* matriz de câmeras × pontos; toques próximos de dois vértices; arcos opostos distintos; sementes fixas.
+  - *Commit:* `feat(editor): add edge geometry and hit testing`
+
+- ⬜ **3.4 Núcleo do editor, histórico e store** (M). `applyAction(estado, ação) → { estado, erro? }` puro (adicionar
+  vértice em ponto, conectar, remover seleção, rótulo, peso, mover, desfazer, refazer, mudar modo, selecionar) sobre
+  `{ graph, layout, selection, mode, history }`; `Result` do domínio nunca é descartado (o erro vai para o estado);
+  módulo `GraphError → mensagem em português`; store Zustand fina em volta.
+  - *Aceite:* desfazer seguido de refazer devolve exatamente o mesmo estado; ação inválida não consome id, não entra
+    no histórico e informa o erro; remover vértice limpa seleção e posição; contadores voltam com o desfazer.
+  - *Testes:* sequências determinísticas contra um modelo de referência independente (como na suíte cruzada), erros
+    mapeados um a um, invariantes (ids únicos, layout ⊆ vértices) após cada passo; a store testada só pelo contrato.
+  - *Commit:* `feat(editor): add editor core, undo history and store`
+
+- ⬜ **3.5 Renderizador SVG somente leitura** (M). `GraphRenderer` e `SvgGraphRenderer`: vértices (círculo + rótulo),
+  arestas, setas, pesos (**ausente ≠ 0**), cores só por tokens (claro/escuro); botão "Carregar exemplo" no Laboratório
+  (monta um grafo real pela store, com `circularLayout`); resumo acessível do canvas. Decisão 5.
+  - *Aceite:* o exemplo aparece em tema claro e escuro; peso 0 aparece e aresta sem peso não mostra número; arcos
+    opostos não se sobrepõem; nada depende só de cor (seta, espessura e forma).
+  - *Testes:* RNTL contando elementos por grafo, geometria pura, contraste dos tokens usados; conferência manual no emulador.
+  - *Commit:* `feat(editor): render graphs with react-native-svg`
+
+- ⬜ **3.6 Modo Adicionar vértice e barra de modos** (M). Barra contextual (Selecionar / Adicionar vértice / Conectar;
+  "Executar" aparece desabilitado e rotulado "em breve"), toque no vazio cria vértice, desfazer/refazer na interface.
+  - *Aceite:* o toque cria o vértice **sob o dedo** com qualquer zoom e deslocamento (câmera de teste); rótulo padrão
+    A, B, C…; desfazer/refazer habilitados conforme o histórico; mensagem curta e instrutiva no estado vazio.
+  - *Testes:* ação pura `(modo, toque) → ação`; RNTL dos botões; gesto simulado com os utilitários de teste do
+    gesture-handler (a confirmar na 3.0).
+  - *Commit:* `feat(editor): add vertex creation mode with undo and redo`
+
+- ⬜ **3.7 Modo Conectar** (M). Toque no vértice de origem, prévia da aresta até o dedo (ou até o alvo), toque no destino
+  cria; cancelar (toque no vazio, no mesmo vértice ou botão); erros do domínio como mensagem (`SELF_LOOP`,
+  `DUPLICATE_EDGE`).
+  - *Aceite:* conectar dois vértices cria uma aresta com id estável; arco oposto em grafo orientado é aceito; repetida
+    em não orientado é recusada com a mensagem certa; cancelar não deixa prévia nem estado pendente.
+  - *Testes:* máquina de estados pura do modo (origem pendente, cancelar, trocar de modo no meio); RNTL.
+  - *Commit:* `feat(editor): add connect mode with preview and cancel`
+
+- ⬜ **3.8 Modo Selecionar, propriedades e exclusão** (M). Toque seleciona vértice/aresta; toque longo abre a folha de
+  propriedades (rótulo do vértice; peso da aresta, com vírgula decimal, "sem peso" ≠ 0); excluir **com confirmação**
+  (diz quantas arestas somem junto). Decisão 4.
+  - *Aceite:* rótulo vazio ou com mais de 64 pontos de código é recusado com mensagem; remover o peso deixa a aresta sem
+    peso; `NaN` e `Infinity` são recusados; excluir vértice some com suas arestas e é desfeito de uma vez.
+  - *Testes:* ações puras, conversão do texto numérico ("2,5", "-0", "abc", vazio), RNTL da folha e da confirmação.
+  - *Commit:* `feat(editor): add selection, properties sheet and deletion`
+
+- ⬜ **3.9 Arrastar vértices** (M). Arrasto no modo Selecionar move o vértice, **sem mover a câmera**; posição ao vivo em
+  valor compartilhado do Reanimated (thread da interface) e gravada na store **ao soltar** (um passo de histórico).
+  - *Aceite:* o vértice acompanha o dedo com zoom e deslocamento quaisquer; soltar fora da tela é tratado; cancelar o
+    gesto restaura a posição; desfazer devolve a posição anterior.
+  - *Testes:* conversão do deslocamento de tela em deslocamento de mundo (puro, com várias câmeras); histórico; manual.
+  - *Commit:* `feat(editor): add vertex dragging`
+
+- ⬜ **3.10 Deslocar e ampliar a câmera** (M). Arrasto no fundo desloca; pinça amplia em torno do ponto focal; botões
+  **Centralizar** e **Ajustar ao grafo**; limites de escala; animação respeita "reduzir movimento".
+  - *Aceite:* pan, pinça e arrasto de vértice **não se confundem** (um gesto, um dono); o ponto sob os dedos fica sob os
+    dedos; depois de ampliar, os toques das tarefas 3.6 a 3.9 continuam acertando (testes de regressão com câmeras).
+  - *Testes:* composição pura de gestos em câmera, regressão do hit-testing, manual (ver 3.14).
+  - *Commit:* `feat(editor): add pan and pinch with fit and center`
+
+- ⬜ **3.11 Painel das quatro representações** (M). Folha inferior com abas (lista de adjacência, matriz de adjacência,
+  matriz de incidência, lista de incidência), **calculadas só enquanto o painel está aberto**, a partir do mesmo
+  `graph`; três estados distintos nas células (sem aresta, aresta sem peso — marcada com "x", como em Boaventura &
+  Jurkiewicz, §2.1, p. 19, e **nunca 1** — e peso, inclusive 0); decisão 7.
+  - *Aceite:* editar o grafo com o painel aberto atualiza as quatro; sem peso, 0 e negativo ficam visíveis e
+    distintos; a incidência mostra +1/−1 (orientado) e 1/1 (não orientado); grafos acima do limite de legibilidade
+    mostram aviso em vez da matriz.
+  - *Testes:* formatação pura (célula → texto), RNTL por aba, "o painel não calcula quando fechado".
+  - *Commit:* `feat(editor): show the four graph representations on demand`
+
+- ⬜ **3.12 Acessibilidade e telas pequenas** (M). Resumo do canvas e **camada acessível** (quando um leitor de tela está
+  ativo): cada vértice e aresta vira elemento focável com rótulo ("Vértice A, grau 3") e ações (selecionar, conectar a…,
+  editar, excluir); alvos ≥ 48 dp; fonte a 200 %; largura de 320 dp; "reduzir movimento"; foco devolvido à ação
+  anterior depois de fechar a folha.
+  - *Aceite:* é possível criar, conectar, editar e excluir **sem enxergar o canvas**, pelas ações do leitor de tela;
+    nenhuma informação só por cor; a barra de modos e a folha cabem em 320 × 640 dp.
+  - *Testes:* RNTL por papéis e rótulos, textos acessíveis gerados por função pura, contraste; manual com TalkBack
+    (VoiceOver **não** testável neste ambiente).
+  - *Commit:* `feat(editor): add accessibility layer and small-screen layout`
+
+- ⬜ **3.13 Preparação para a persistência local** (S/M). `LayoutDocument` v1 (`schemaVersion`, `graphId`, posições por id)
+  com `serializeLayout`/`parseLayout` (mesma disciplina de validação: nada corrigido, campos desconhecidos recusados,
+  posições finitas, arquivos de referência escritos à mão); interface `GraphRepository` com **implementação em
+  memória** e gravação automática com atraso; o editor só conhece a interface. **Sem SQLite** (Fase 5).
+  - *Aceite:* sair do Laboratório e voltar restaura grafo e layout da sessão; documento do grafo (v1) e do layout
+    são separados e ligados por `graphId`; o aviso de que **fechar o app perde tudo** continua visível até a Fase 5.
+  - *Testes:* ida e volta e entradas inválidas do layout, contrato com o documento do grafo, autosave com relógio falso.
+  - *Commit:* `feat(editor): add layout document and in-memory graph repository`
+
+- ⬜ **3.14 Verificação manual e consolidação** (S). Roteiro em Android (emulador `Pixel_6` e, se possível, aparelho
+  físico) e iOS (**pendente: sem macOS**); conflito pinça/arrasto/deslocamento, toque após zoom, TalkBack, tema escuro,
+  fonte grande, rotação travada, grafo de 100 vértices e 300 arestas (fluidez medida no monitor de desempenho);
+  `ARCHITECTURE.md` e este roadmap atualizados; Fase 3 marcada como concluída **somente** com os critérios atendidos.
+  - *Commit:* `docs(editor): record phase 3 verification and decisions`
+
+**Dependências entre incrementos:** 3.1, 3.2 e 3.3 são independentes entre si (módulos puros); 3.4 depende de 3.2; 3.5
+de 3.1 a 3.4; 3.6 a 3.8 dependem de 3.5 e de 3.3; 3.9 de 3.8; 3.10 de 3.9; 3.11 de 3.4; 3.12 de 3.8 e 3.10; 3.13 de 3.4.
+
+**Riscos e o que fazer**
+
+| Risco | Mitigação |
+| --- | --- |
+| Conflito entre pinça, deslocamento e arrasto | modo explícito; um dono por gesto (`Gesture.Exclusive`/`Race`, a confirmar na versão instalada); decisão pura testada; verificação manual na 3.14 |
+| Toque errado depois de zoom/pan | hit-testing puro em coordenadas de tela, testado com matriz de câmeras (3.3) e regressão na 3.10 |
+| Desempenho do SVG com muitos elementos | medir na 3.14; memoizar elementos; se não bastar, trocar pelo Skia atrás de `GraphRenderer` |
+| Canvas inacessível a leitor de tela | camada acessível paralela (3.12) em vez de depender do SVG |
+| Texto do SVG não acompanha a fonte do sistema | decisão 5 na 3.5 |
+| Nomes e comportamento do Reanimated/worklets mudam entre versões | conferir na instalação (3.0) e não usar API de memória |
+| Expo Go da SDK 58 não disponível | development build (decisão 1) |
+| iOS não testável | registrado como pendente em cada entrega |
+
+- Critério da fase: tocar depois de zoom/pan acerta o vértice esperado; os modos não se confundem; editar atualiza as
+  quatro representações; desfazer/refazer é exato.
+
+## Fase 4 — Representações na interface e limites ⬜
+
+- ✅ 4.1 a 4.4 (lista e matriz de adjacência, matriz e lista de incidência com a convenção de sinais declarada, graus e
+  propriedades) **já foram entregues no domínio na Fase 2** (incrementos 3.1 a 3.4B e 2.2); o painel básico entra na
+  tarefa 3.11 da Fase 3.
+- ⬜ 4.5 Refinar os painéis na interface (destaque do vértice selecionado nas estruturas, comparação entre estruturas),
+  sempre derivados do mesmo `Graph`.
 - ⬜ 4.6 **Matriz sob demanda e limite de tamanho:** calcular a matriz só quando o painel abrir, nunca a cada edição.
   O limite de vértices só será fixado **depois de medir em Hermes, em dispositivos Android com poucos recursos** (as
   medições em Node da etapa 3.2 — ≈ 8 bytes por posição, ≈ 70 MB em V = 3000 — não bastam). Evitar manter a

@@ -56,10 +56,14 @@ import { GRAPH_SCHEMA_VERSION, type Edge, type Graph, type Vertex } from './type
 //
 // Segurança
 // - Só se leem PROPRIEDADES PRÓPRIAS DE DADOS, por descritor (`Object.getOwnPropertyDescriptor`), cada uma UMA vez, e
-//   os valores lidos é que são validados e copiados. Getters/setters nunca são executados (viram `UNREADABLE`), o
-//   `[[Get]]` nunca é usado (um proxy só vê `ownKeys`, `getPrototypeOf` e `getOwnPropertyDescriptor`), e uma entrada
-//   que muda entre leituras não consegue fazer o resultado divergir do que foi validado. Qualquer exceção durante a
-//   inspeção (proxy que lança, proxy revogado) vira `UNREADABLE`.
+//   os valores lidos é que são validados e copiados. Getters/setters nunca são executados (viram `UNREADABLE`) e o
+//   `[[Get]]` nunca é usado.
+// - PROXY: as operações reflexivas EXECUTAM as armadilhas dele. A leitura aciona `ownKeys`, `getPrototypeOf` e
+//   `getOwnPropertyDescriptor` (um teste confere que são só essas), e o código do proxy pode ter efeitos colaterais,
+//   lançar (vira `UNREADABLE`, inclusive proxy revogado), devolver valores diferentes a cada chamada (a leitura única
+//   impede que isso faça o resultado divergir do que foi validado), ou fingir um array sem fim se não houver
+//   `maxVertices`/`maxEdges`. Isto NÃO é uma sandbox: para dado não confiável, use o TEXTO (`parseGraphJson`), cujo
+//   `JSON.parse` só produz dados puros.
 // - Objetos precisam ser simples: protótipo nulo ou um protótipo-raiz (o `Object.prototype` de qualquer realm).
 //   Instâncias de classe, `Map`, `Date`, arrays no lugar de objetos etc. são `NOT_AN_OBJECT`. Propriedades herdadas
 //   são ignoradas. Chaves desconhecidas, símbolos e propriedades ocultas fazem o documento ser recusado, o que

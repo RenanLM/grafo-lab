@@ -5,12 +5,17 @@ import {
   createGraph,
   removeEdge,
   removeVertex,
+  setEdgeWeight,
+  setVertexLabel,
   type Graph,
   type Result,
 } from './index';
 
 declare const __dirname: string; // o Jest (CommonJS) fornece; evita depender dos tipos do Node
-const fs = jest.requireActual<{ readFileSync(path: string, encoding: 'utf8'): string }>('node:fs');
+const fs = jest.requireActual<{
+  readFileSync(path: string, encoding: 'utf8'): string;
+  readdirSync(path: string): string[];
+}>('node:fs');
 
 /** Lê um arquivo de referência de `golden/v1`. Normaliza fim de linha e quebra final, que dependem do Git e do editor. */
 export function readGolden(name: string): string {
@@ -18,6 +23,16 @@ export function readGolden(name: string): string {
     .readFileSync(`${__dirname}/golden/v1/${name}`, 'utf8')
     .replace(/\r\n/g, '\n')
     .replace(/\n$/, '');
+}
+
+/** Nomes (em ordem alfabética) de todos os arquivos de `golden/v1`: quem lista a pasta cobre também os arquivos novos. */
+export function listGolden(): string[] {
+  return fs.readdirSync(`${__dirname}/golden/v1`).sort();
+}
+
+/** Nomes das pastas de `golden/` (uma por versão do esquema). */
+export function listGoldenVersions(): string[] {
+  return fs.readdirSync(`${__dirname}/golden`).sort();
 }
 
 /** Congela o grafo inteiro: qualquer mutação nas operações vira TypeError (módulos são strict). */
@@ -92,6 +107,69 @@ export function randomGraph(seed: number, directed: boolean, maxVertices = 9): G
     graph = connect(graph, source, target, WEIGHTS[Math.floor(random() * WEIGHTS.length)]);
   }
   return graph;
+}
+
+const OPERATION_LABELS = [undefined, 'Königsberg', '日本語', '🙂', ' com espaços ', 'x'.repeat(64), 'B'];
+const OPERATION_WEIGHTS = [undefined, 0, -3, 2.5, 7];
+
+/**
+ * Uma operação aleatória do domínio, válida ou não (criar/remover vértice, criar/remover aresta, trocar rótulo ou
+ * peso), escolhida só por `random` e pelo estado do grafo: o mesmo gerador sobre o mesmo grafo repete a operação.
+ * Devolve o MESMO grafo se a operação foi recusada ou não mudou nada.
+ */
+export function randomOperation(graph: Graph, random: () => number): Graph {
+  const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)]!;
+  const roll = random();
+  const { vertices, edges } = graph;
+  if (roll < 0.25) {
+    const created = addVertex(graph, pick(OPERATION_LABELS));
+    return created.ok ? created.value.graph : graph;
+  }
+  if (roll < 0.35 && vertices.length > 0) {
+    const removed = removeVertex(graph, pick(vertices).id);
+    return removed.ok ? removed.value : graph;
+  }
+  if (roll < 0.65 && vertices.length >= 2) {
+    const created = addEdge(graph, {
+      source: pick(vertices).id,
+      target: pick(vertices).id,
+      weight: pick(OPERATION_WEIGHTS),
+    });
+    return created.ok ? created.value.graph : graph;
+  }
+  if (roll < 0.75 && edges.length > 0) {
+    const removed = removeEdge(graph, pick(edges).id);
+    return removed.ok ? removed.value : graph;
+  }
+  if (roll < 0.85 && vertices.length > 0) {
+    const edited = setVertexLabel(graph, pick(vertices).id, pick(OPERATION_LABELS) ?? 'Z');
+    return edited.ok ? edited.value : graph;
+  }
+  if (edges.length > 0) {
+    const edited = setEdgeWeight(graph, pick(edges).id, pick(OPERATION_WEIGHTS));
+    return edited.ok ? edited.value : graph;
+  }
+  return graph;
+}
+
+/** Grafo inicial de uma sequência de operações aleatórias (nome com acento em um a cada três). */
+export function startOfHistory(seed: number, directed: boolean): Graph {
+  return createGraph({ id: `g${seed}`, name: seed % 3 === 0 ? 'Grafo: ação' : '', directed });
+}
+
+/** Grafo inicial e o resultado de cada operação aleatória que mudou algo, em `steps` tentativas (mesma semente, mesmo histórico). */
+export function randomHistory(seed: number, directed: boolean, steps: number): Graph[] {
+  const random = seededRandom(seed);
+  let graph = startOfHistory(seed, directed);
+  const history = [graph];
+  for (let step = 0; step < steps; step++) {
+    const next = randomOperation(graph, random);
+    if (next !== graph) {
+      graph = next;
+      history.push(graph);
+    }
+  }
+  return history;
 }
 
 /** Grafo congelado com `count` vértices (v1..vN) e as arestas criadas na ordem dada. */
