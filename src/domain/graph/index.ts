@@ -11,6 +11,7 @@ export {
   type AdjacencyList,
   type AdjacencyRow,
 } from './adjacency';
+export { incidenceMatrix, type IncidenceMatrix, type IncidenceValue } from './incidence';
 export { fail, ok, type GraphError, type InvalidLabelReason, type Result } from './errors';
 export {
   addEdge,

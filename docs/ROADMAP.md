@@ -59,9 +59,11 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
     independentes (sem aliasing). `adjacencyAsNumbers(matrix, { absent, unweighted })` é a **projeção numérica**:
     opções obrigatórias (teste de tipo), não reversível, sem distância zero automática na diagonal; a matriz
     estrutural original nunca perde informação.
-  - ⬜ 3.3 **Matriz de incidência** (`incidence.ts`): `{ vertexIds, edgeIds, cells }`, vértices × arestas na ordem
-    de inserção. Orientado: **+1 na origem e −1 no destino**; não orientado: 1 nas duas pontas; as demais células
-    valem 0. Fonte conferida: Boaventura & Jurkiewicz, §2.1, p. 20 (ver `REFERENCIAS.md`).
+  - ✅ 3.3 **Matriz de incidência** (`incidence.ts`): `incidenceMatrix` devolve `{ vertexIds, edgeIds, cells }`,
+    vértices × arestas na ordem de inserção, células em `{-1, 0, 1}`. Orientado: **+1 na origem e −1 no destino**;
+    não orientado: +1 nas duas pontas; as demais células valem 0; sem pesos. Fonte conferida: Boaventura &
+    Jurkiewicz, §2.1, p. 20 (ver `REFERENCIAS.md`). Identidades B·Bᵀ = D + A (não orientado) e B·Bᵀ = D − (A + Aᵀ)
+    (orientado) verificadas em grafos pequenos; construção Θ(V + V·E).
   - ⬜ 3.4 **Testes cruzados** entre as três representações (grafos pseudoaleatórios de semente fixa, sem dependência
     nova) e **análise de complexidade** (tabela abaixo) registrada em `ARCHITECTURE.md`.
 - ⬜ 2.4 **Incremento 4:** `serializeGraph` e `parseGraph(unknown)` validando todas as invariantes (inclusive a regra
@@ -75,7 +77,7 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
 | Lista de arestas (o próprio `Graph`) | — | Θ(V + E) | O(E) | O(E) |
 | Lista de adjacência | Θ(V + E) | Θ(V + E) (2E entradas no não orientado) | O(d(v)) | O(d(u)) |
 | Matriz de adjacência | Θ(V²) | Θ(V²) (2E células ocupadas no não orientado) | O(V) | O(1) após o índice id → posição, Θ(V) |
-| Matriz de incidência | Θ(V · E) | Θ(V · E) (só 2E células não nulas) | O(E + d(v) · V) (a linha dá as arestas; cada coluna dá a outra ponta) | O(E) (comparar as linhas de u e v) |
+| Matriz de incidência | Θ(V + V·E) (Θ(V·E) se E ≥ 1) | Θ(V + V·E) (só 2E células não nulas) | O(E + d(v) · V) (a linha dá as arestas; cada coluna dá a outra ponta) | O(E) (comparar as linhas de u e v) |
 
 A etapa 3.4 confirma esses custos no código e na tabela de `ARCHITECTURE.md`; limites de tamanho para a interface só
 depois de medir.
@@ -104,7 +106,8 @@ Dependências desta fase (via `npx expo install`): `react-native-svg`, `react-na
 - ⬜ 4.6 **Matriz sob demanda e limite de tamanho:** calcular a matriz só quando o painel abrir, nunca a cada edição.
   O limite de vértices só será fixado **depois de medir em Hermes, em dispositivos Android com poucos recursos** (as
   medições em Node da etapa 3.2 — ≈ 8 bytes por posição, ≈ 70 MB em V = 3000 — não bastam). Evitar manter a
-  matriz estrutural e a projeção numérica na memória ao mesmo tempo.
+  matriz estrutural e a projeção numérica na memória ao mesmo tempo. Para a **incidência** o critério é o produto
+  **V·E** (≈ 8 bytes por posição em Node: K250 = 7,8 milhões de posições ≈ 60 MB), não só o número de vértices.
 - Critério: editar o grafo atualiza todas as representações; testes passam.
 
 ## Fase 5 — Tutorial básico e persistência ⬜

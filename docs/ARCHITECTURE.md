@@ -56,7 +56,7 @@ src/
   components/          UI compartilhada: Screen, Text, Card, Badge, EmptyState, GraphGlyph, ActionCard
   features/            telas e conteúdo por assunto (home, lessons, graph-editor, challenges)
   theme/               tokens (cores claro/escuro, espaçamento, tipografia) e useTheme
-  domain/graph/        modelo do grafo (Fase 2): types, errors, graph (operações), queries (grau e vizinhança), adjacency e adjacency-matrix (representações), index (API pública)
+  domain/graph/        modelo do grafo (Fase 2): types, errors, graph (operações), queries (grau e vizinhança), adjacency, adjacency-matrix e incidence (representações), index (API pública)
   domain/              algoritmos e simulação entram nas fases seguintes
   storage/             (Fase 5+) SQLite e migrações
 docs/                  ROADMAP, ARCHITECTURE, REFERENCIAS
@@ -151,6 +151,32 @@ Pastas são criadas só quando necessárias.
      (`absent: 0` com peso zero; `unweighted: 1` com peso 1). Não é uma "matriz binária" em geral: só contém 0 e 1
      em grafo sem pesos com `{ absent: 0, unweighted: 1 }` (a leitura do livro-texto, p. 19). Não assume distância
      zero na diagonal: a diagonal vale `absent`. Θ(V²) em tempo e em espaço.
+   - **Matriz de incidência** (`incidenceMatrix`, em `incidence.ts`): `{ vertexIds, edgeIds, cells }`, vértices ×
+     arestas, com `cells[i][j]` em `{-1, 0, 1}`; linhas na ordem dos vértices e colunas na ordem de inserção das
+     arestas. Convenção do livro-texto (Boaventura & Jurkiewicz, §2.1, p. 20; ver `REFERENCIAS.md`): orientado →
+     **+1 na origem e −1 no destino**; não orientado → **+1 nas duas pontas**; 0 = sem incidência. Arcos opostos
+     ocupam colunas diferentes, com os sinais trocados. Pesos **não** fazem parte da matriz (editar peso ou rótulo
+     não a altera). Sem arestas → uma linha vazia por vértice; grafo vazio → arrays vazios. Células são números e
+     cada linha é um array próprio, então não há aliasing. A interface deve mostrar uma legenda de sinais, pois
+     outras fontes podem inverter a convenção.
+     - *Identidades verificadas nos testes* (grafos pequenos; A é a adjacência **binária por existência** das
+       arestas, nunca a projeção numérica com pesos): não orientado B·Bᵀ = D + A; orientado B·Bᵀ = D − (A + Aᵀ),
+       com D a diagonal dos graus (grau comum no não orientado, total no orientado).
+     - *Construção:* Θ(V + V·E) em tempo e em espaço, que é Θ(V·E) para E ≥ 1; só 2E posições são não nulas. Como
+       E pode chegar a V(V−1)/2 (não orientado) ou V(V−1) (orientado), o pior caso é Θ(V³): **o que importa é o
+       produto V·E**, não só V.
+     - *Consultas depois de pronta* (custo à parte da construção): uma célula O(1) dados os índices; grau de um
+       vértice pela linha O(E); extremos de uma aresta pela coluna O(V); vizinhos por varredura O(E + d(v)·V) (a
+       lista de adjacência dá O(d(v))).
+     - *Medição pontual* (30/10/2026; Node 24.12 puro com `--expose-gc`, i5-11400H, 16 GB; grafos esparsos com
+       E ≈ 4V e grafos completos; até ≈ 8 milhões de posições): **≈ 8,0 a 8,2 bytes por posição V·E**, de 61 mil a
+       8 milhões de posições; ≈ 60 MB com 7,8 milhões de posições (K250 não orientado: 31 125 arestas × 250
+       vértices, ou o esparso V = 1400). Tempo de construção: ≈ 1 a 3 ms para 1 milhão de posições, ≈ 10 a 15 ms
+       para 4 milhões e ≈ 25 a 43 ms para 8 milhões. Comparando com a matriz de adjacência do mesmo grafo (≈ 8
+       bytes × V², medidos na etapa 3.2; derivado, não medido de novo), a incidência custa **E/V vezes mais**: 4×
+       no esparso (E ≈ 4V) e ≈ 124× no K250 (E/V = (V−1)/2). Esses números **NÃO definem o limite do aplicativo**
+       (Node/V8 num PC, não Hermes nem Android modesto): a interface deve decidir se exibe a matriz completa pelo
+       produto V·E e calculá-la sob demanda (ver ROADMAP, Fase 4).
    - **Imutável**, com ordem de inserção preservada (desempate estável para os algoritmos). Buscas por ID são
      lineares, adequadas ao tamanho dos grafos didáticos; algoritmos montam suas próprias estruturas (O(V+E)).
 8. **Renderização (Fase 3):** SVG atrás de interface `GraphRenderer`, para trocar por Skia depois.

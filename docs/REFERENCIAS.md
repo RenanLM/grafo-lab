@@ -33,7 +33,7 @@ Todo o material didático do app é original. Os PDFs ficam apenas na máquina l
     em que todo arco (i,j) tem o simétrico (j,i) (base da convenção sucessores = predecessores = vizinhos).
   - Cap. 2, §2.1, **p. 20** — matriz de incidência (letra **B**), vértice × ligação: no grafo orientado, o vértice
     de saída do arco recebe **1** e o de entrada **−1**; no não orientado, as duas posições recebem 1. A ordem
-    das colunas não é obrigatória (o livro usa a ordem lexicográfica; o GrafoLab usa a ordem de inserção).
+    das colunas não é obrigatória (o livro usa a ordem lexicográfica; o GrafoLab usa a ordem de inserção). Aplicada em `incidenceMatrix` (etapa 3.3).
   - O livro também descreve a incidência para p-grafos (colunas repetidas para ligações paralelas); o GrafoLab
     só modela grafos simples.
 
