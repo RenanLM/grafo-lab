@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"g3","name":"","directed":true,"vertices":[{"id":"v1","label":"A"},{"id":"v2","label":"B"},{"id":"v3","label":"C"}],"edges":[{"id":"e1","source":"v1","target":"v2","weight":0},{"id":"e2","source":"v2","target":"v1","weight":-1},{"id":"e3","source":"v2","target":"v3"}],"nextVertexSeq":4,"nextEdgeSeq":4}

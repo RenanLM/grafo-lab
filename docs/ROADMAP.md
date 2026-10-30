@@ -86,8 +86,18 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
       `ARCHITECTURE.md`. Não define limite do aplicativo.
     - **Consolidação:** `index.ts` reagrupado por assunto (50 nomes antes e depois, sem duplicados) e `completeGraph`
       unificado em `test-helpers.ts` (havia 3 cópias).
-- ⬜ 2.4 **Incremento 4:** `serializeGraph` e `parseGraph(unknown)` validando todas as invariantes (inclusive a regra
-  de rótulos); testes de propriedade (Σ graus = 2·|E| no não orientado; Σ entrada = Σ saída = |E| no orientado).
+- 🔄 2.4 **Incremento 4 — persistência** (cada etapa só começa com autorização):
+  - ✅ 4.1 **Serialização** (`serialization.ts`): `serializeGraph(graph, { pretty? })` produz o JSON canônico do esquema
+    v1: chaves em ordem fixa, arrays na ordem de inserção, `weight` só quando existe (sem peso, zero e negativo ficam
+    distintos), contadores `nextVertexSeq`/`nextEdgeSeq` gravados como estão (ids removidos não são reaproveitados),
+    sem estado de interface. Arquivos de referência em `golden/v1/`. Não valida: exige um `Graph` válido. Formato,
+    versionamento e custo em `ARCHITECTURE.md`.
+  - ⬜ 4.2 **Desserialização e validação** (`parseGraph(input: unknown): Result<Graph>` e
+    `parseGraphJson(text: string): Result<Graph>`): fronteira de dados não confiáveis. Rejeita formato inválido,
+    versão e campos desconhecidos, ids repetidos, extremos inexistentes, laços, arestas duplicadas, pesos e rótulos
+    inválidos e contadores incoerentes; preserva ids e contadores; não compartilha referências com a entrada; protege
+    contra `__proto__` e contra entradas grandes (limites configuráveis, sem valor padrão no domínio). Inclui testes de
+    ida e volta e de propriedade (Σ graus = 2·|E| no não orientado; Σ entrada = Σ saída = |E| no orientado).
 - Critério: `npm test` cobre o domínio e passa sem nenhum import de React Native.
 
 **Custos das representações** (V = vértices, E = arestas, d(v) = grau; análise teórica; as medições pontuais em Node

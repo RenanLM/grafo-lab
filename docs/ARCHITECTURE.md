@@ -56,7 +56,7 @@ src/
   components/          UI compartilhada: Screen, Text, Card, Badge, EmptyState, GraphGlyph, ActionCard
   features/            telas e conteúdo por assunto (home, lessons, graph-editor, challenges)
   theme/               tokens (cores claro/escuro, espaçamento, tipografia) e useTheme
-  domain/graph/        modelo do grafo (Fase 2): types, errors, graph (operações), queries (grau e vizinhança), adjacency, adjacency-matrix, incidence e incidence-list (representações), index (API pública)
+  domain/graph/        modelo do grafo (Fase 2): types, errors, graph (operações), queries (grau e vizinhança), adjacency, adjacency-matrix, incidence e incidence-list (representações), serialization (JSON v1; arquivos de referência em `golden/v1/`), index (API pública)
   domain/              algoritmos e simulação entram nas fases seguintes
   storage/             (Fase 5+) SQLite e migrações
 docs/                  ROADMAP, ARCHITECTURE, REFERENCIAS
@@ -266,6 +266,97 @@ Jurkiewicz, §2.1, p. 20 (ver `REFERENCIAS.md`); a interface deve mostrar uma le
   Fase 4). A memória e o tempo de cada representação foram aferidos em processos separados para evitar o artefato de
   coleta de lixo que apareceu numa medição anterior (valores negativos de heap).
 
+## Formato de persistência (esquema v1)
+
+`serializeGraph(graph, { pretty? })` (em `serialization.ts`) produz um JSON **canônico, versionado e determinístico** do
+`Graph`, sem depender do Expo SQLite nem de nada de interface. É a base da persistência local (Fase 5) e da importação
+e exportação (Fase 13). **Só a serialização existe**; a leitura com validação (`parseGraph`) é o Incremento 4.2.
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "g3",
+  "name": "",
+  "directed": true,
+  "vertices": [ { "id": "v1", "label": "A" }, { "id": "v2", "label": "B" } ],
+  "edges": [
+    { "id": "e1", "source": "v1", "target": "v2", "weight": 0 },
+    { "id": "e2", "source": "v2", "target": "v1" }
+  ],
+  "nextVertexSeq": 4,
+  "nextEdgeSeq": 3
+}
+```
+
+| Campo | Conteúdo |
+| --- | --- |
+| `schemaVersion` | versão do **layout** do documento, copiada de `Graph.schemaVersion` (hoje 1, `GRAPH_SCHEMA_VERSION`); sempre a primeira chave |
+| `id`, `name` | identificação do grafo (o `id` vem de quem persiste; o domínio não gera ids aleatórios) |
+| `directed` | orientação, global ao grafo |
+| `vertices` | `{ id, label }`, na ordem de inserção |
+| `edges` | `{ id, source, target, weight? }`, na ordem de inserção; em grafo orientado a aresta é o arco `source → target` |
+| `nextVertexSeq`, `nextEdgeSeq` | contadores de ids, gravados **como estão** |
+
+**Regras**
+- **Ordem das chaves fixa**, a mesma do tipo `Graph`, e independente da ordem das propriedades do objeto recebido
+  (o documento é montado por uma lista explícita de campos). Os arrays seguem a **ordem de inserção**, nunca ordem
+  alfabética: a ordem faz parte do significado (desempate estável dos algoritmos).
+- **`weight` só existe quando a aresta tem peso.** Sem peso (chave ausente), peso `0` e peso negativo continuam
+  distintos no texto; aresta sem peso nunca ganha peso 1 (reusa o helper `weightField`).
+- **Contadores não são recalculados.** Se `v3` foi removido, `nextVertexSeq` continua em 4; depois de restaurar o
+  grafo, `v3` **não** é reaproveitado. O mesmo vale para as arestas.
+- **Nada de interface.** Posição dos vértices, seleção, câmera e estado visual não entram (campos extras pendurados
+  no objeto são ignorados). Cada um terá o seu próprio documento nas fases do editor.
+- **Unicode:** o texto é Unicode; rótulos como "Königsberg" ou "日本語" saem sem escape, e só o que o JSON exige
+  (aspas, barra invertida, caracteres de controle, substitutos soltos) é escapado. A codificação em bytes (UTF-8) é
+  de quem grava o arquivo. Não há normalização Unicode.
+- **`pretty` muda só a formatação** (recuo de 2 espaços, uma propriedade por linha, sem quebra de linha final): os
+  dados e a ordem são idênticos aos do compacto, que é o padrão.
+- **`id` e `name` do grafo estão no documento** para que `parseGraph(serializeGraph(g))` devolva o mesmo `Graph`.
+  Ao importar um arquivo de outra instalação, quem persiste decide se mantém o `id` ou gera outro.
+
+**Pré-condição e fronteira de validação.** `serializeGraph` trabalha com instâncias **válidas** de `Graph` e **não
+valida nem corrige nada**: um grafo adulterado fora do domínio é gravado como está (versão estranha, contador menor
+que os ids, ids repetidos), e `NaN`/`Infinity` viram `null` (o JSON não os representa). A rejeição desses documentos é
+da fronteira de dados externos, o `parseGraph` do Incremento 4.2.
+
+**Versionamento.** `schemaVersion` identifica o layout. Qualquer mudança nas propriedades (por exemplo uma
+`capacity` por aresta, na Fase 12) **exige uma versão nova** e um leitor explícito para a antiga: o leitor v1 rejeita
+versões e campos desconhecidos em vez de ignorá-los; um documento v1 nunca é relido como v2 sem uma **migração** que
+diga o significado do campo novo (por exemplo, "sem capacity definida", nunca 1 nem infinito). Os arquivos de
+referência de cada versão ficam em `golden/v<n>/` e não são editados depois de criados; versões novas ganham
+diretório novo. Migrações **não** foram implementadas (só existe a versão 1).
+
+**Complexidade** (V vértices, E arestas, L = total de caracteres dos textos: ids, rótulos, extremos e dígitos).
+- **Tempo Θ(V + E + L):** montar o documento custa O(1) por elemento (as strings são reaproveitadas por referência,
+  sem cópia) e `JSON.stringify` lê e escreve cada caractere uma vez. L **não** é constante por elemento: os ids
+  `v<n>`/`e<n>` têm Θ(log n) caracteres, um rótulo criado pelo domínio tem até 64 pontos de código (até 128 unidades
+  UTF-16) e um peso ocupa algumas dezenas de caracteres, então L = O(128·V + (V + E)·log(V + E)).
+- **Tamanho do texto compacto (fórmula exata, conferida contra o texto real):** cabeçalho de 113 + |id| + |name|
+  (− 1 se orientado; + 1 por dígito além do primeiro de cada contador); 20 + |id| + |label| por vértice;
+  33 + |id| + |source| + |target| por aresta (+ 10 + |dígitos| com peso); mais uma vírgula entre elementos de cada
+  array. O `pretty` soma Θ(V + E) caracteres de espaço em branco.
+- **Espaço Θ(V + E) transitório** (objetos e arrays do documento) **+ Θ(texto)** para a string devolvida.
+- **Por que o documento intermediário:** fixa a ordem das chaves e a lista de campos independentemente do objeto
+  recebido. Escrever o texto diretamente evitaria esses objetos, mas duplicaria o escape e a formatação do JSON e foi
+  **mais lento** na medição.
+
+**Medição pontual** (Node 24.12, i5-11400H, 16 GB; um processo por estratégia e tamanho, 3 rodadas alternadas; E ≈ 4V,
+`--expose-gc`; tempo = mediana). "impl" = o `serializeGraph`; "direto" = escritor de texto sem documento intermediário:
+
+| Grafo | Texto | `serializeGraph` | escritor direto |
+| --- | --- | --- | --- |
+| V = 10 000, E = 40 000, rótulos curtos | 2,2 MB | 9,1 ms | 17,0 ms |
+| V = 40 000, E = 160 000, rótulos curtos | 9,1 MB | 34,8 ms | 63,5 ms |
+| V = 160 000, E = 640 000, rótulos curtos | 37,4 MB | 133,8 ms (`pretty`: 62,1 MB, 187,1 ms) | 433,6 ms |
+| V = 40 000, E = 160 000, rótulos de 64 caracteres e pesos | 13,3 MB | 52,7 ms (`pretty`: 20,7 MB, 70,3 ms) | 136,9 ms |
+
+O tempo cresceu linearmente com V + E (≈ 3,8× para 4× o tamanho); o texto ocupou ≈ 45 a 49 caracteres por elemento
+(vértice ou aresta) com rótulos curtos e sem pesos, e ≈ 70 com rótulos de 64 caracteres e pesos; o `pretty` custou
+≈ 55 a 66% mais caracteres e ≈ 33 a 40% mais tempo. A alocação transitória não foi medida (o Node usado não expõe o
+total alocado). **Estes números são de Node/V8 num PC: não valem para Android ou iOS (Hermes) e não definem limite do
+aplicativo.**
+
 ## Estratégia de testes
 
 - **Domínio:** Jest em ambiente Node (projeto `domain`), ao lado do código; entradas congeladas com
@@ -280,6 +371,11 @@ Jurkiewicz, §2.1, p. 20 (ver `REFERENCIAS.md`); a interface deve mostrar uma le
   confere ids não consumidos; (4) **controles negativos**: o verificador precisa acusar representações corrompidas.
   Todas as verificações usam sementes fixas. Em mutação aplicada **só a essa suíte**, 40 inconsistências sutis nos
   quatro módulos foram detectadas.
+- **Formato de persistência:** arquivos de referência (*golden*) em `src/domain/graph/golden/v1/`, **escritos à mão**
+  a partir da especificação (não gerados pelo código) e pequenos (< 600 caracteres), comparados byte a byte com a
+  saída; uma segunda implementação do texto compacto, escrita por concatenação, é comparada com o serializador em 400
+  grafos pseudoaleatórios; um teste fixa `GRAPH_SCHEMA_VERSION = 1` (mudar a versão exige novos arquivos de referência
+  e uma migração). A leitura dos arquivos normaliza fim de linha (o Git no Windows pode converter LF em CRLF).
 - **Componentes/rotas:** Jest + React Native Testing Library (`jest-expo`); rotas via `renderRouter`.
 - **Tema:** contraste calculado a partir dos tokens.
 - **Em dispositivo (manual):** gestos pinch/pan/drag, safe areas, comportamento da barra de abas nativa,

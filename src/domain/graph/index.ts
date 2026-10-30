@@ -45,6 +45,9 @@ export {
   successors,
 } from './queries';
 
+// Persistência: serialização canônica em JSON (esquema v1)
+export { serializeGraph, type SerializeOptions } from './serialization';
+
 // Representações: lista e matriz de adjacência, matriz e lista de incidência
 export {
   adjacencyList,
