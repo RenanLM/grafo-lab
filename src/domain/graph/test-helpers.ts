@@ -87,6 +87,18 @@ export function graphOf(
   );
 }
 
+/** Grafo completo congelado com `n` vértices: todos os pares (não orientado) ou todos os arcos (orientado). */
+export function completeGraph(n: number, directed: boolean): Graph {
+  let graph = withVertices(n, directed);
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (i === j || (!directed && i > j)) continue;
+      graph = connect(graph, `v${i}`, `v${j}`);
+    }
+  }
+  return graph;
+}
+
 // Grafos de referência compartilhados pelos testes das representações. As arestas são criadas de propósito
 // FORA da ordem dos vértices, para provar que os resultados seguem a ordem dos vértices.
 

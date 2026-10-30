@@ -14,7 +14,7 @@ import {
   type IncidenceMatrix,
 } from './index';
 import {
-  connect,
+  completeGraph,
   digraphWithOpposites as D,
   graphOf,
   must,
@@ -34,17 +34,6 @@ const count = (values: readonly number[], wanted: number) => values.filter((v) =
 const sum = (values: readonly number[]) => values.reduce((total, v) => total + v, 0);
 const absSum = (values: readonly number[]) => values.reduce((total, v) => total + Math.abs(v), 0);
 const nonZero = (values: readonly number[]) => values.filter((v) => v !== 0).length;
-
-function completeGraph(n: number, directed: boolean): Graph {
-  let graph = withVertices(n, directed);
-  for (let i = 1; i <= n; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (i === j || (!directed && i > j)) continue;
-      graph = connect(graph, `v${i}`, `v${j}`);
-    }
-  }
-  return graph;
-}
 
 describe('grafo vazio e grafo sem arestas', () => {
   it('grafo vazio → arrays vazios (orientado ou não)', () => {

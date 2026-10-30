@@ -48,7 +48,7 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
 - ✅ 2.2 **Incremento 2:**
   - ✅ Parte A: grau (entrada, saída, total), vizinhança (sucessores, predecessores, vizinhos) e vértices isolados.
   - ✅ Parte B: `setVertexLabel` (trim, 1 a 64 pontos de código, repetidos permitidos) e `setEdgeWeight` (`undefined` remove, `0` é peso).
-- 🔄 2.3 **Incremento 3 — representações** (um commit por etapa; cada etapa só começa com autorização):
+- ✅ 2.3 **Incremento 3 — representações** (concluído; um commit por etapa, cada etapa só começou com autorização):
   - ✅ 3.0 `addVertex` devolve `Result` e valida o rótulo pelas mesmas regras do `setVertexLabel` (`null` não conta como "omitido").
   - ✅ 3.1 **Lista de adjacência** (`adjacency.ts`): uma linha por vértice, na ordem dos vértices; entradas
     `{ vertexId, edgeId, weight? }` na ordem de `successors`. Orientado: só arcos de saída. Não orientado: cada
@@ -71,29 +71,27 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
     aparece uma vez em cada extremo (2E entradas); arcos opostos têm `edgeId` próprio; peso sem conversão (ausente,
     zero e negativo). Construção Θ(V + E), uma passada pelas arestas e sem ordenação. Consistência com
     `incidenceMatrix` testada localmente (+1 ↔ `outgoing`/`undirected`, −1 ↔ `incoming`).
-  - ⬜ 3.4B **Testes cruzados e consolidação das quatro representações** (lista de adjacência, matriz de
-    adjacência, matriz de incidência e lista de incidência). Só começa com autorização. Planejado:
-    - suíte `representations.test.ts` com grafos pseudoaleatórios de **sementes fixas**, comparando resultados
-      **estruturais**, independentes dos rótulos;
-    - **reconstrução de arestas** (id, extremos, sentido) a partir de cada representação, comparada com o grafo e
-      entre as quatro;
-    - **pesos** validados onde a representação os contém (as duas listas e a matriz de adjacência); a matriz de
-      incidência **não** precisa conter pesos;
-    - **invariantes** cruzadas: contagens (entradas, células ocupadas, 2E), graus, identidades B·Bᵀ e a
-      correspondência incidências ↔ células ↔ entradas, com mesma ordem de vértices e de arestas;
-    - **sequências determinísticas de operações válidas e inválidas** (semente fixa), regenerando as quatro
-      representações a cada passo e conferindo a consistência depois das edições; operação inválida não altera nada;
-    - independência de objetos (sem aliasing entre as quatro nem com o grafo);
-    - **mutação aplicada só à suíte cruzada**;
-    - medição consolidada em **processos isolados** (um por estrutura, para evitar o artefato de coleta de lixo) e
-      tabela comparativa final em `ARCHITECTURE.md`;
-    - extrair o helper que copia o peso (`entryFor` / `cellFor` / lista de incidência) **somente se** reduzir
-      duplicação relevante.
+  - ✅ 3.4B **Testes cruzados e consolidação das quatro representações** (concluída):
+    - **Suíte cruzada** `representations.test.ts` (70 testes, ≈ 2,5 s), com sementes fixas e comparação
+      **estrutural** (independente de rótulos): quatro reconstruções de arestas escritas de formas diferentes; dois
+      grafos (G1 orientado, G2 não orientado) com as quatro estruturas **calculadas à mão**; pesos nos quatro
+      estados (sem peso, zero, positivo, negativo) conferidos nas duas listas e na matriz de adjacência (a matriz de
+      incidência não precisa de pesos); invariantes (contagens, 2E, graus, papéis × sinais, ausência ≠ peso zero,
+      ordem, identidades B·Bᵀ); 200 grafos pseudoaleatórios por orientação; independência de objetos; **sequências de
+      operações válidas e inválidas** (100 sementes × 80 passos por orientação) comparadas com um modelo
+      independente (códigos de erro previstos, ids não consumidos, operação sem efeito devolve o mesmo grafo);
+      controles negativos (15 corrupções acusadas).
+    - **Mutação só na suíte cruzada:** 40 mutações nos quatro módulos, todas detectadas.
+    - **Medição em processos isolados** (Node, um processo por estrutura e tamanho): tabela comparativa e ressalvas em
+      `ARCHITECTURE.md`. Não define limite do aplicativo.
+    - **Consolidação:** `index.ts` reagrupado por assunto (50 nomes antes e depois, sem duplicados) e `completeGraph`
+      unificado em `test-helpers.ts` (havia 3 cópias).
 - ⬜ 2.4 **Incremento 4:** `serializeGraph` e `parseGraph(unknown)` validando todas as invariantes (inclusive a regra
   de rótulos); testes de propriedade (Σ graus = 2·|E| no não orientado; Σ entrada = Σ saída = |E| no orientado).
 - Critério: `npm test` cobre o domínio e passa sem nenhum import de React Native.
 
-**Custos previstos das representações** (V = vértices, E = arestas, d(v) = grau; análise teórica, **sem medições**):
+**Custos das representações** (V = vértices, E = arestas, d(v) = grau; análise teórica; as medições pontuais em Node
+estão em `ARCHITECTURE.md`):
 
 | Estrutura | Construção | Espaço | Vizinhos de v | Existe a aresta (u,v)? |
 | --- | --- | --- | --- | --- |
@@ -103,8 +101,8 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
 | Lista de incidência | Θ(V + E) | Θ(V + E) (2E entradas) | O(d(v)) | O(d(u)) (varrer as incidências de u) |
 | Matriz de incidência | Θ(V + V·E) (Θ(V·E) se E ≥ 1) | Θ(V + V·E) (só 2E células não nulas) | O(E + d(v) · V) (a linha dá as arestas; cada coluna dá a outra ponta) | O(E) (comparar as linhas de u e v) |
 
-A etapa 3.4B confirma esses custos no código e na tabela de `ARCHITECTURE.md`; limites de tamanho para a interface
-só depois de medir.
+A etapa 3.4B registrou a tabela comparativa e as medições em `ARCHITECTURE.md`; limites de tamanho para a interface
+só depois de medir em Hermes e em Android com poucos recursos (tarefa 4.6).
 
 ## Fase 3 — Canvas touch-first ⬜
 

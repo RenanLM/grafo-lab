@@ -13,7 +13,7 @@ import {
   type Graph,
   type Result,
 } from './index';
-import { connect, errorOf, graphOf, must, withVertices } from './test-helpers';
+import { completeGraph, errorOf, graphOf, must, withVertices } from './test-helpers';
 
 // Arestas criadas de propósito fora da ordem dos vértices: o resultado das consultas deve
 // seguir a ordem de inserção dos VÉRTICES (v1, v2, …), não a ordem de criação das arestas.
@@ -45,18 +45,6 @@ const D = graphOf(
 
 function allIds(graph: Graph): string[] {
   return graph.vertices.map((vertex) => vertex.id);
-}
-
-function completeGraph(count: number, directed: boolean): Graph {
-  let graph = withVertices(count, directed);
-  for (let i = 1; i <= count; i++) {
-    for (let j = 1; j <= count; j++) {
-      if (i === j) continue;
-      if (!directed && i > j) continue;
-      graph = connect(graph, `v${i}`, `v${j}`);
-    }
-  }
-  return graph;
 }
 
 describe('grafo vazio', () => {

@@ -196,6 +196,16 @@ Pastas são criadas só quando necessárias.
      - *Consistência:* a lista e a matriz de incidência descrevem exatamente as mesmas incidências, na mesma ordem
        (testado localmente, inclusive com arcos opostos); a suíte cruzada completa das quatro representações é a
        etapa 3.4B.
+   - **Helper interno de pesos** (`weight.ts`, não exportado): `weightField(edge)` devolve `undefined` se a aresta não
+     tem peso e `{ weight }` caso contrário (inclusive `0` e negativos), para ser espalhado (`...weightField(edge)`) na
+     lista de adjacência, na matriz de adjacência e na lista de incidência. Centraliza a regra "sem peso ≠ zero ≠
+     negativo; sem peso nunca vira 1", que estava repetida em 3 módulos e que um `if (edge.weight)` quebraria (descarta
+     o zero). A primeira versão devolvia `{}` sem peso e custou ≈ +10% de tempo de construção (A/B alternado em
+     processos isolados: mediana 1,10; até 1,16 nos tamanhos grandes), porque o `{}` era alocado por entrada. A versão
+     final devolve `undefined` (espalhar `undefined` não aloca): mediana 1,03 contra 1,02 do controle (código idêntico)
+     e memória idêntica. `addEdge` e `withWeight` (em `graph.ts`) não usam o helper: recebem o peso como número, não de
+     uma aresta. A construção das representações **não** foi abstraída (o mapa id → posição, com 2 linhas, continua em
+     cada módulo).
    - **Imutável**, com ordem de inserção preservada (desempate estável para os algoritmos). Buscas por ID são
      lineares, adequadas ao tamanho dos grafos didáticos; algoritmos montam suas próprias estruturas (O(V+E)).
 8. **Renderização (Fase 3):** SVG atrás de interface `GraphRenderer`, para trocar por Skia depois.

@@ -17,7 +17,7 @@ import {
   type IncidenceRole,
 } from './index';
 import {
-  connect,
+  completeGraph,
   digraphWithOpposites as D,
   graphOf,
   must,
@@ -47,17 +47,6 @@ const rowOf = (list: IncidenceList, vertexId: string) => list.rows[list.vertexId
 const countRole = (row: readonly IncidenceListEntry[], role: IncidenceRole) =>
   row.filter((entry) => entry.role === role).length;
 const totalEntries = (list: IncidenceList) => list.rows.reduce((total, row) => total + row.length, 0);
-
-function completeGraph(n: number, directed: boolean): Graph {
-  let graph = withVertices(n, directed);
-  for (let i = 1; i <= n; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (i === j || (!directed && i > j)) continue;
-      graph = connect(graph, `v${i}`, `v${j}`);
-    }
-  }
-  return graph;
-}
 
 describe('grafo vazio e vértices isolados', () => {
   it('grafo vazio → arrays vazios (orientado ou não)', () => {
