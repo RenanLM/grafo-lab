@@ -2,7 +2,8 @@
 // Zustand. Calcula; não desenha, não escuta toques e não guarda estado de tela. Os módulos entram um por incremento
 // (docs/ROADMAP.md, Fase 3):
 //   3.1 câmera (coordenadas de mundo ↔ tela) — pronta · 3.2 GraphLayout e posicionamento — pronto · 3.3 geometria das
-//   arestas (3.3A) e hit-testing (3.3B) — prontos · 3.4 comandos do editor e histórico.
+//   arestas (3.3A) e hit-testing (3.3B) — prontos · 3.4 comandos do editor, histórico e mensagens — pronto (a store Zustand
+//   fica em `graph-editor/editor-store.ts`, fora do núcleo).
 // Importa apenas o domínio (`@/domain/graph`) e a si mesmo. O ESLint barra o resto e `boundary.test.ts` confere também
 // os imports relativos que saiam desta pasta. A interface (`src/features/graph-editor/*.tsx`) e a futura store
 // Zustand dependem deste núcleo, nunca o contrário.
@@ -58,6 +59,26 @@ export {
   type LineSegment,
   type QuadraticCurve,
 } from './geometry';
+
+// Edição: estado, ações, histórico de desfazer/refazer, política de rótulos e de contadores (a store Zustand fica fora do núcleo)
+export {
+  applyAction,
+  createEditorState,
+  DEFAULT_HISTORY_LIMIT,
+  EDITOR_MODES,
+  MAX_HISTORY_LIMIT,
+  nextFreeLabel,
+  type CreateEditorStateOptions,
+  type EditorAction,
+  type EditorError,
+  type EditorHistory,
+  type EditorMode,
+  type EditorSelection,
+  type EditorSnapshot,
+  type EditorState,
+  type EditorTransition,
+} from './editor';
+export { editorErrorMessage, graphErrorMessage } from './error-messages';
 
 // Hit-testing (toque em dp de tela + câmera): vértice, aresta ou fundo do canvas
 export {
