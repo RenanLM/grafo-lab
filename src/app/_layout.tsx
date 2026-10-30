@@ -1,5 +1,7 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { useTheme } from '@/theme';
 
@@ -18,10 +20,17 @@ export default function RootLayout() {
     },
   };
 
+  // O Gesture Handler só reconhece gestos dentro de um `GestureHandlerRootView`, o mais perto da raiz possível.
   return (
-    <ThemeProvider value={navigationTheme}>
-      <StatusBar style="auto" />
-      <Stack screenOptions={{ headerShown: false }} />
-    </ThemeProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <ThemeProvider value={navigationTheme}>
+        <StatusBar style="auto" />
+        <Stack screenOptions={{ headerShown: false }} />
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+});

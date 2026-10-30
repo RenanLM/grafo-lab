@@ -130,9 +130,9 @@ estão em `ARCHITECTURE.md`):
 A etapa 3.4B registrou a tabela comparativa e as medições em `ARCHITECTURE.md`; limites de tamanho para a interface
 só depois de medir em Hermes e em Android com poucos recursos (tarefa 4.6).
 
-## Fase 3 — Editor visual de grafos (canvas touch-first) ⬜ — **proposta detalhada, aguarda autorização**
+## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 concluído; os demais aguardam autorização)
 
-Nada desta fase foi iniciado. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
+Só o incremento 3.0 foi feito (infraestrutura; **não há editor**). Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
 quando houver regra nova e uma mensagem de commit. Tamanhos: **S** (um módulo puro e seus testes) e **M** (lógica +
 interface). Ordem como no prompt mestre: renderizar, criar, conectar, selecionar; **depois** arrastar, deslocar e
 ampliar, em incrementos separados.
@@ -154,17 +154,25 @@ ampliar, em incrementos separados.
   de baixo.
 - **Gestos por modo explícito** (Selecionar / Adicionar vértice / Conectar), para reduzir conflito; a decisão do que
   um toque significa é uma função pura `(modo, ponto, camada) → ação`.
-- **Histórico por instantâneos** `{ graph, layout }` (imutáveis, compartilham o que não mudou): desfazer restaura
-  também os **contadores** de ids (o próximo rótulo padrão volta a ser o que o aluno viu, ex.: desfazer a criação de C e
-  criar outro vértice dá C de novo); passo que não muda nada (`set*` devolve o mesmo grafo) não é registrado; um arrasto
-  inteiro é **um** passo; limite de 100 passos; o histórico não é persistido nesta fase. A câmera e a seleção ficam
-  fora do histórico.
+- **Histórico por instantâneos** `{ graph, layout }` (imutáveis, compartilham o que não mudou), **com contadores de
+  ids monotônicos e independentes dos instantâneos** (decisão corrigida no 3.0; detalhes em `ARCHITECTURE.md`, "IDs e
+  histórico"): desfazer uma criação **não** libera o id, refazer restaura o **mesmo** id, operação nova depois de
+  desfazer descarta o ramo de refazer, e ao desfazer/refazer o estado de destino herda os contadores do estado atual
+  (sem alterar o domínio). *A versão anterior deste texto dizia que desfazer restaurava os contadores; isso reabriria um
+  id já emitido e foi **revogado**.* O rótulo padrão sai do contador (A, B, D depois de desfazer C); reaproveitar rótulo
+  livre é decisão separada (3.4/3.6). Passo que não muda nada (`set*` devolve o mesmo grafo) não é registrado; um
+  arrasto inteiro é **um** passo; limite de 100 passos; o histórico não é persistido nesta fase. A câmera e a seleção
+  ficam fora do histórico.
+- **Um detector no canvas e hit-testing no núcleo puro** (achado do 3.0): gestos por elemento SVG exigem `onPress` no
+  elemento e um hook por vértice; o editor não os usa (ver `ARCHITECTURE.md`, "Gestos sobre elementos SVG").
 
 **Pontos a decidir antes de começar** (recomendação em negrito)
-1. **Expo Go × development build.** O Expo Go da SDK 58 não foi confirmado nas lojas. **Seguir no Expo Go se estiver
-   disponível; senão, development build (`expo-dev-client`)**; decidir na 3.0.
-2. **Onde mora o código puro do editor:** **`src/features/graph-editor/core/` com regra de ESLint e projeto Jest em Node
-   próprios** (recomendado) × `src/domain/layout/`. A segunda mistura posição visual com o domínio matemático.
+1. ✅ **Expo Go × development build** (decidido no 3.0): as quatro bibliotecas rodam no Expo Go 58.0.5 (emulador
+   `Pixel_6`, Android 13); **sem development build por ora**. Continua não confirmado se o Expo Go da SDK 58 já está nas
+   lojas (o emulador recebe a versão certa do Expo CLI); no iOS ficaria o TestFlight da doc.
+2. ✅ **Onde mora o código puro do editor** (decidido no 3.0): **`src/features/graph-editor/core/` com regra de ESLint e
+   projeto Jest `editor-core` em Node próprios**. `src/domain/layout/` foi descartado (mistura posição visual com o
+   domínio matemático).
 3. **Orientação do grafo no editor:** **escolher ao criar o grafo ("Novo grafo": orientado ou não) e não oferecer troca
    depois** (a decisão 7 já adiou `setDirected`: orientado → não orientado pode gerar arestas repetidas) × implementar
    `setDirected` no domínio com tratamento de conflitos.
@@ -172,32 +180,44 @@ ampliar, em incrementos separados.
    doc da SDK vigente (pergunta em aberto desta página).
 5. **Rótulos no SVG:** `Text` do `react-native-svg` × `Text` do React Native sobreposto. O primeiro não acompanha o
    tamanho de fonte do sistema; **decidir na 3.5 com um teste no emulador a 200 % de fonte**.
-6. **React Compiler × worklets:** avaliar na 3.0 (decisão 6 de `ARCHITECTURE.md`); se houver conflito, desligar o
-   compilador só nos arquivos de worklets.
+6. ✅ **React Compiler × worklets** (avaliado no 3.0): sem conflito na transformação do Babel nem no emulador; fica
+   ligado. A documentação do Reanimated/Worklets consultada não trata do compilador; reavaliar na 3.9 (arrasto com
+   valores compartilhados) e usar `'use no memo'` por arquivo se necessário.
 7. **Limite de legibilidade das matrizes no painel** (provisório, ≈ 40 vértices): é de legibilidade, **não** de
    desempenho; o limite de produto continua dependendo da medição em dispositivo (tarefa 4.6).
 
 **Incrementos**
 
-- ⬜ **3.0 Dependências e infraestrutura** (S). Instalar com `npx expo install`: `react-native-svg`,
-  `react-native-gesture-handler`, `react-native-reanimated`, `react-native-worklets` e `zustand`; `GestureHandlerRootView`
-  no layout raiz; regra de ESLint e projeto Jest para `src/features/graph-editor/core`; decisões 1 e 6.
-  - *A confirmar na instalação* (a doc do Expo para a SDK 58 não traz a versão empacotada nem a configuração mínima do
-    gesture-handler, não cita `Line`, `Text` e `G` do SVG e não trata dos nomes atuais da API de worklets, como
-    `scheduleOnRN`): README do gesture-handler, versões que o `expo install` escolher, elementos do SVG e
-    compatibilidade com o React Compiler.
-  - *Aceite:* `npx expo install --check` e `expo-doctor` limpos; `npm run check` passa; o app abre no emulador `Pixel_6`
-    (tela de teste **descartada**, não vai para o commit) com um `Svg`, um `Gesture.Tap` e uma animação do Reanimated.
-  - *Testes:* o `check` existente; um teste de fronteira que prova que `core` não aceita import de React.
-  - *Commit:* `chore(editor): add svg, gesture handler, reanimated, worklets and zustand`
+- ✅ **3.0 Dependências e infraestrutura** (S). Instalados com `npx expo install` (versões da SDK 58, sem alterar
+  nada além disso): `react-native-svg` 15.16.0, `react-native-gesture-handler` 3.3.0, `react-native-reanimated` 4.7.1 e
+  `react-native-worklets` 0.13.0. **`zustand` não foi instalado** (só tem uso no 3.4). `GestureHandlerRootView` no
+  layout raiz; ESLint e projeto Jest `editor-core` para `src/features/graph-editor/core`; ambiente de testes de SVG,
+  gestos e Reanimated (resolver, `jestSetup`, mock de `getUIRuntimeHolder`, `testTimeout` de 30 s por causa do cache
+  frio); especificação do `GraphLayout`; **correção da decisão de IDs e histórico**; achado sobre gestos em SVG. Versões
+  e a divergência da doc do Gesture Handler (3.3.x × RN 0.88) investigadas e **documentadas sem mexer nas
+  dependências**: `ARCHITECTURE.md`, "Editor visual (Fase 3): fundação".
+  - *Verificado:* `expo install --check` e `expo-doctor` (20/20) limpos; `npm run check` verde; no emulador `Pixel_6`
+    (Expo Go 58.0.5) o app real navega com a raiz de gestos e uma tela de teste **descartada** (fora do commit) provou
+    `Svg`, toque, arrasto com Reanimated e `scheduleOnRN`. **Não verificado:** iOS, aparelho físico, TalkBack, pinça,
+    development build.
+  - *Testes:* `core/boundary.test.ts` (fronteira do núcleo e do domínio por ESLint real, imports relativos, alias) e
+    `native-stack.test.tsx` (SVG, gestos e Reanimated no Jest); mutação dirigida de `eslint.config.js` e `jest.config.js`.
+  - *Commit:* `chore(editor): add svg, gesture handler, reanimated and worklets, and the pure editor core boundary`
 
-- ⬜ **3.1 Câmera pura** (S). `camera.ts`: `Camera = { x, y, scale }` (translação e escala uniforme, sem rotação),
-  `worldToScreen`, `screenToWorld`, `panBy`, `zoomAt(câmera, pontoFocalNaTela, fator)`, limites de escala (provisórios:
-  0,25 a 4, a confirmar em dispositivo), `fitToBounds(retângulo, viewport, margem)` e `centerOn`.
-  - *Aceite:* ida e volta mundo → tela → mundo devolve o ponto (erro < 1e-9); o ponto focal do zoom não se move; ajustar
-    ao grafo mostra todos os vértices dentro da margem; viewport de tamanho zero e grafo vazio não geram `NaN`.
-  - *Testes:* exemplos calculados à mão, propriedades com sementes fixas, casos degenerados; mutação dirigida nas
-    fórmulas (sinal, ordem escala/translação, foco).
+- ⬜ **3.1 Sistema de coordenadas e câmera** (S, `core/camera.ts`). Convenção: `Camera = { x, y, scale }` com
+  `tela = mundo · scale + (x, y)` (`(x, y)` é onde a origem do mundo cai na tela, em pixels; escala uniforme, sem
+  rotação; y para baixo nos dois espaços). Funções puras: `worldToScreen(câmera, ponto)`, `screenToWorld(câmera,
+  ponto)`, `zoomAt(câmera, pontoFocalNaTela, fator, limites?)` (o ponto do mundo sob o foco **não se move**; escala
+  limitada), `panBy(câmera, dx, dy)`, `fitToBounds(retângulo do mundo, viewport, margem, limites?)`, `centerOn(câmera,
+  pontoDoMundo, viewport)` e `clampScale`. Limites padrão **provisórios** 0,25 a 4 (a confirmar em dispositivo).
+  Casos degenerados definidos: grafo vazio → câmera neutra; um vértice (retângulo de área zero) → centraliza com escala
+  1; viewport ≤ 0 ou margem maior que o viewport → devolve a câmera recebida; nunca `NaN` nem `Infinity`.
+  - *Aceite:* ida e volta mundo → tela → mundo devolve o ponto (erro < 1e-9) para qualquer câmera válida; o ponto
+    focal do zoom fica onde estava; `fitToBounds` deixa **todos** os vértices dentro do viewport com a margem; entradas
+    não são alteradas; sem `NaN`.
+  - *Testes:* exemplos calculados à mão (inclusive zoom focal e ajuste ao grafo), propriedades com sementes fixas (ida
+    e volta, composição de `zoomAt`, ajuste contém os pontos), casos degenerados; mutação dirigida nas fórmulas (sinal,
+    ordem escala/translação, fórmula do foco, margem). **Não conecta nada a gestos.**
   - *Commit:* `feat(editor): add pure camera transforms`
 
 - ⬜ **3.2 `GraphLayout` e posicionamento** (S). `GraphLayout` imutável; `placeVertex`, `moveVertex`,
@@ -221,7 +241,9 @@ ampliar, em incrementos separados.
   `{ graph, layout, selection, mode, history }`; `Result` do domínio nunca é descartado (o erro vai para o estado);
   módulo `GraphError → mensagem em português`; store Zustand fina em volta.
   - *Aceite:* desfazer seguido de refazer devolve exatamente o mesmo estado; ação inválida não consome id, não entra
-    no histórico e informa o erro; remover vértice limpa seleção e posição; contadores voltam com o desfazer.
+    no histórico e informa o erro; remover vértice limpa seleção e posição; **os contadores nunca recuam** (desfazer uma
+    criação não libera o id; refazer restaura o mesmo id; operação nova depois de desfazer descarta o refazer;
+    `redo(undo(s))` é exatamente `s`); decidir o rótulo padrão depois de desfazer (A, B, D × menor rótulo livre).
   - *Testes:* sequências determinísticas contra um modelo de referência independente (como na suíte cruzada), erros
     mapeados um a um, invariantes (ids únicos, layout ⊆ vértices) após cada passo; a store testada só pelo contrato.
   - *Commit:* `feat(editor): add editor core, undo history and store`
@@ -237,7 +259,8 @@ ampliar, em incrementos separados.
 - ⬜ **3.6 Modo Adicionar vértice e barra de modos** (M). Barra contextual (Selecionar / Adicionar vértice / Conectar;
   "Executar" aparece desabilitado e rotulado "em breve"), toque no vazio cria vértice, desfazer/refazer na interface.
   - *Aceite:* o toque cria o vértice **sob o dedo** com qualquer zoom e deslocamento (câmera de teste); rótulo padrão
-    A, B, C…; desfazer/refazer habilitados conforme o histórico; mensagem curta e instrutiva no estado vazio.
+    A, B, C… (regra de rótulo livre conforme a decisão do 3.4); desfazer/refazer habilitados conforme o histórico; um
+    novo vértice depois de desfazer **nunca** reaproveita o id; mensagem curta e instrutiva no estado vazio.
   - *Testes:* ação pura `(modo, toque) → ação`; RNTL dos botões; gesto simulado com os utilitários de teste do
     gesture-handler (a confirmar na 3.0).
   - *Commit:* `feat(editor): add vertex creation mode with undo and redo`
@@ -307,8 +330,11 @@ ampliar, em incrementos separados.
   `ARCHITECTURE.md` e este roadmap atualizados; Fase 3 marcada como concluída **somente** com os critérios atendidos.
   - *Commit:* `docs(editor): record phase 3 verification and decisions`
 
-**Dependências entre incrementos:** 3.1, 3.2 e 3.3 são independentes entre si (módulos puros); 3.4 depende de 3.2; 3.5
-de 3.1 a 3.4; 3.6 a 3.8 dependem de 3.5 e de 3.3; 3.9 de 3.8; 3.10 de 3.9; 3.11 de 3.4; 3.12 de 3.8 e 3.10; 3.13 de 3.4.
+**Dependências entre incrementos:** o 3.0 (concluído) antecede todos. 3.1, 3.2 e 3.3 são independentes entre si
+(módulos puros do `core`); 3.3 usa a câmera (3.1) e o layout (3.2) como entrada, então na prática vem depois deles; 3.4
+depende de 3.2; 3.5 de 3.1 a 3.4; 3.6 a 3.8 dependem de 3.5 e de 3.3; 3.9 de 3.8; 3.10 de 3.9; 3.11 de 3.4; 3.12 de 3.8
+e 3.10; 3.13 de 3.4. **Procedimento de teste em Android** (emulador, Metro, `adb`, limites do que se consegue
+testar sem aparelho): `ARCHITECTURE.md`, "Procedimento de teste em Android".
 
 **Riscos e o que fazer**
 

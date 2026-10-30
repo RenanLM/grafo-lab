@@ -33,6 +33,7 @@
 | Navegação | `expo-router` 58 (`src/app`, rotas tipadas) | abas com `NativeTabs` (estável na SDK 58) |
 | Testes | `jest-expo` + Jest 30 + `@testing-library/react-native` 14 | Jest 30 é exigido pela SDK 58 |
 | Node | 24.12 no ambiente | SDK 58 exige ≥ 22.13 (linha 22), ≥ 24.3 (linha 24) ou ≥ 26 |
+| Editor visual (Fase 3, incremento 3.0) | `react-native-svg` 15.16.0 · `react-native-gesture-handler` 3.3.0 · `react-native-reanimated` 4.7.1 · `react-native-worklets` 0.13.0 | exatamente as versões da SDK 58 (`npx expo install`); compatibilidade, divergência da doc do Gesture Handler e verificação no emulador em "Editor visual (Fase 3)" |
 
 ### Expo Go × development build (SDK 58, segundo a documentação oficial)
 
@@ -44,9 +45,11 @@
 - Bibliotecas planejadas (docs da SDK 58): `react-native-svg`, `react-native-gesture-handler`,
   `react-native-reanimated` (+ `react-native-worklets`, plugin Babel já configurado pelo `babel-preset-expo`),
   `expo-sqlite` (sem SQLCipher) e `@shopify/react-native-skia` **estão no Expo Go**. `expo-file-system`,
-  `expo-document-picker` e `expo-sharing` ainda precisam ser conferidos na Fase 13.
+  `expo-document-picker` e `expo-sharing` ainda precisam ser conferidos na Fase 13. Verificado em 30/10/2026: as
+  quatro bibliotecas do editor (instaladas na 3.0) rodam no **Expo Go 58.0.5 no emulador `Pixel_6` (Android 13)**.
 - Development build (`expo-dev-client`, `npx expo run:android|ios` ou `eas build --profile development`)
-  vira necessário se uma dependência futura sair do conjunto do Expo Go. Não é preciso nas fases 1–7.
+  vira necessário se uma dependência futura sair do conjunto do Expo Go. Não é preciso nas fases 1–7 (até aqui,
+  nenhuma saiu; `expo-dev-client` **não** está instalado).
 
 ## Estrutura
 
@@ -55,6 +58,8 @@ src/
   app/                 rotas Expo Router (finas): (tabs)/{index,aprender,laboratorio,desafios}, +not-found
   components/          UI compartilhada: Screen, Text, Card, Badge, EmptyState, GraphGlyph, ActionCard
   features/            telas e conteúdo por assunto (home, lessons, graph-editor, challenges)
+    graph-editor/      interface do editor (SVG, gestos, animação, controles); a store Zustand entra no incremento 3.4
+      core/            núcleo PURO do editor (câmera, layout, geometria, hit-testing, comandos, histórico); sem React/RN
   theme/               tokens (cores claro/escuro, espaçamento, tipografia) e useTheme
   domain/graph/        modelo do grafo (Fase 2): types, errors, graph (operações), queries (grau e vizinhança), adjacency, adjacency-matrix, incidence e incidence-list (representações), serialization (JSON v1; arquivos de referência em `golden/v1/`), deserialization (leitura validada do JSON v1), index (API pública)
   domain/              algoritmos e simulação entram nas fases seguintes
@@ -127,12 +132,14 @@ domínio **deliberadamente não assume**:
    não é substituto direto das abas JS e, na web, cai em implementação básica (a web não é alvo do produto).
    Abas sem cabeçalho nativo: cada tela desenha o próprio título (`Screen`).
 3. **Poda do template**: removidos `@expo/ui`, `expo-image`, `expo-device`, `expo-web-browser`,
-   `expo-glass-effect`, `reanimated`, `worklets` e `gesture-handler`; voltam na fase que os usa. Mantidos
+   `expo-glass-effect`, `reanimated`, `worklets` e `gesture-handler`; voltam na fase que os usa (os três e o
+   `react-native-svg` voltaram na Fase 3, incremento 3.0). Mantidos
    `react-dom` e `react-native-web` apenas para pré-visualizar telas no navegador durante o desenvolvimento.
 4. **Estado do tema** vem do esquema do sistema (`useColorScheme`); cores só via tokens. O contraste
    (WCAG AA, 4,5:1) é verificado por teste.
 5. **Orientação travada em retrato** até a fase de tablets (Fase 13).
-6. **React Compiler** permanece ligado como no template; reavaliar na Fase 3 junto com worklets.
+6. **React Compiler** permanece ligado como no template. Reavaliado no incremento 3.0 junto com worklets: continua
+   ligado (a transformação do Babel e uma execução no emulador não acusaram conflito; ver "Editor visual (Fase 3)").
 7. **Modelo de domínio** (`src/domain/graph`, implementado no incremento 1 da Fase 2):
    - **Grafo simples**: laço → `SELF_LOOP`; aresta repetida → `DUPLICATE_EDGE`. Não orientado: `{u,v}` é par
      não ordenado. Orientado: `u→v` e `v→u` são arcos distintos e ambos permitidos. Não se misturam arcos e arestas.
@@ -653,6 +660,228 @@ decodificado; `parseGraphJson` = texto → grafo.
   `parseGraph` atual e regravado na versão atual; (6) atualizar esta seção e o ROADMAP.
 - As migrações do **esquema SQL** (`expo-sqlite`, Fase 5) são independentes das do documento.
 
+## Editor visual (Fase 3): fundação (incremento 3.0)
+
+O 3.0 prepara a infraestrutura; **não há editor**. Entregou dependências, a raiz de gestos, as fronteiras de
+arquitetura do núcleo puro, o ambiente de testes e esta especificação. O plano dos incrementos está no ROADMAP.
+
+### Dependências e compatibilidade
+
+| Pacote | Instalado | SDK 58 recomenda | Faixa de React Native declarada pelo fornecedor |
+| --- | --- | --- | --- |
+| `react-native-svg` | 15.16.0 | 15.16.0 | peer `*` |
+| `react-native-gesture-handler` | 3.3.0 | `~3.3.0` | peer `*`; tabela da doc: **3.3.x até 0.87, 3.4.x de 0.85 a 0.88** |
+| `react-native-reanimated` | 4.7.1 | 4.7.1 | 0.86 a 0.88 (`compatibility.json` do pacote); exige `react-native-worklets` 0.13.x e a Nova Arquitetura |
+| `react-native-worklets` | 0.13.0 | 0.13.0 | 0.86 a 0.88 (`compatibility.json` do pacote) |
+
+- **Estado anterior.** `gesture-handler` 3.4.0, `reanimated` 4.7.1 e `worklets` 0.13.1 já estavam em `node_modules`,
+  mas **só como peers opcionais do `expo-router`** (não apareciam no `package.json`; por isso `expo install --check`
+  não os acusava). Instalá-los como dependências diretas fixou as versões da SDK: `gesture-handler` voltou de 3.4.0
+  para 3.3.0 e `worklets` de 0.13.1 para 0.13.0. `zustand` **não** foi instalado (só entra no incremento 3.4).
+- **Divergência investigada (Gesture Handler × React Native 0.88).** O Expo recomenda `~3.3.0`, e a tabela da documentação do
+  fornecedor marca 3.3.x como **não** listada para o RN 0.88 (3.4.x é a que lista). Resultado da investigação:
+  1. os `peerDependencies` são `react: *` e `react-native: *`, então o npm não impõe nada;
+  2. o texto da tabela diz que o pacote "suporta as três últimas versões menores do React Native": é **política de
+     suporte**, e a página não descreve incompatibilidade que impeça compilar ou rodar;
+  3. as notas da 3.4.0 trazem "Bump to React Native 0.88" como item de manutenção (não como correção de erro) e as
+     da 3.3.0 não mencionam o 0.88;
+  4. o Expo Go 58 já traz o código **nativo** da 3.3.0: o JavaScript precisa ser da mesma versão, então instalar a
+     3.4.0 sobre esse binário seria um descompasso;
+  5. na prática, no Expo Go 58.0.5 (Android 13) com RN 0.88.1, toque, arrasto, Reanimated na thread da interface e
+     `scheduleOnRN` funcionaram, sem avisos no log.
+  **Decisão:** manter a 3.3.0 recomendada pelo Expo, **sem alterar** dependências. Reavaliar subir para a 3.4.x quando
+  a lista da SDK mudar ou quando houver development build (aí a versão nativa passa a ser escolha do projeto).
+- **Development build:** **não é necessário** nesta etapa (as quatro bibliotecas estão no Expo Go da SDK 58). Se um dia
+  for (comandos): `npx expo install expo-dev-client`, depois `npx expo run:android` (SDK Android e Java 17 já existem
+  no ambiente) ou `npx eas-cli@latest build --profile development --platform android`.
+- **Fora do escopo, não instalado:** bottom sheet, Skia, `expo-dev-client`, `zustand`.
+
+### Configuração
+
+- **`GestureHandlerRootView`** envolve todo o app em `src/app/_layout.tsx` (`style={{ flex: 1 }}`), por fora do
+  `ThemeProvider` e da `Stack`. A documentação do Gesture Handler pede o componente "o mais perto da raiz possível" e
+  só reconhece gestos dentro dele. Rotas, telas e estilos não mudaram.
+- **Babel:** nenhum `babel.config.js`. O `babel-preset-expo` acrescenta sozinho o plugin `react-native-worklets/plugin`
+  quando o pacote está instalado. Conferido com o Babel real (`caller` do Metro, Android): os 4 worklets de um
+  exemplo (callbacks de `useTapGesture` e `usePanGesture` e o de `useAnimatedStyle`) são transformados **com e sem**
+  o React Compiler.
+- **React Compiler** (ligado em `app.json`): o `babel-preset-expo` o ativa pelo `caller` e exclui `node_modules`.
+  A documentação consultada do Reanimated e do Worklets **não trata** do compilador; a verificação foi empírica: o
+  exemplo compila, e no emulador o pan com valor compartilhado funcionou com o compilador ligado. Regra prática:
+  escrever em `sharedValue.value` só dentro de worklets e callbacks (nunca durante a renderização) e usar a diretiva
+  `'use no memo'` num arquivo se o compilador atrapalhar.
+- **Jest (projeto `app`, `jest.config.js`):** `resolver: 'react-native-reanimated/jest/resolver'` (no Jest, Reanimated
+  e Worklets usam a implementação em JS), `setupFiles` com `react-native-gesture-handler/jestSetup` (mocks do módulo
+  nativo e habilita `react-native-gesture-handler/jest-utils`) e `jest.setup.js` (o Gesture Handler 3 chama
+  `getUIRuntimeHolder`, que na implementação em JS lança; o setup o substitui por uma função que devolve `{}`);
+  `testTimeout` de 30 s, porque com o cache de transformação vazio o primeiro render de uma rota passou dos 5 s
+  padrão. Gestos nos testes: `createGestureController(getByGestureTestId(id))` com `begin/activate/update/end` dentro
+  de `await act(...)` (o RNTL 14 é assíncrono).
+- **Jest (projeto `editor-core`):** Node puro, sem React Native, com `moduleNameMapper` para o alias `@/`, mesmo
+  Babel do projeto `domain`. O projeto `app` ignora a pasta `core`.
+- **ESLint:** `no-restricted-imports` vale em `src/domain/**` e em `src/features/graph-editor/core/**`. As duas camadas
+  barram React, React Native (e todo `react-*`: SVG, gestos, Reanimated, Worklets), Expo, `@shopify/*`, `zustand` e
+  qualquer `@/` fora do permitido (domínio: só `@/domain`; núcleo: `@/domain` e `@/features/graph-editor/core`). O
+  núcleo ainda barra JSX. A negação por `!` do `group` não reabilita um caminho cujo diretório pai foi barrado, então
+  os aliases permitidos usam `regex`. `core/boundary.test.ts` roda o ESLint de verdade sobre trechos de código e confere
+  o que é barrado e o que passa; ele também confere, por varredura dos arquivos, os imports **relativos** que saem da
+  pasta `core`, que o ESLint não enxerga.
+
+### Verificação no Android (30/10/2026)
+
+Ambiente: emulador `Pixel_6` (Android 13), Expo Go 58.0.5, Metro iniciado com `npx expo start`, `adb reverse`.
+- **App real** (com a raiz de gestos): a Início carrega em tema escuro (esquema do sistema), o cartão "Abrir o
+  Laboratório" leva ao Laboratório e a barra de abas nativa troca para Aprender. Sem avisos ou erros no log do
+  `ReactNativeJS` e no Metro. O primeiro carregamento com o cache do Metro vazio levou ≈ 55 s (1949 módulos); abrir a
+  rota antes disso mostrou "Something went wrong" do Expo Go, e abrir de novo depois do bundle resolveu.
+- **Tela de teste descartada** (não está no repositório): `Svg` com `Line`, `Circle` e `Text` renderizou; `Animated.View`
+  com valor compartilhado, `usePanGesture` e `scheduleOnRN` funcionaram (um arrasto de 520 px entregou o último
+  deslocamento ao JavaScript e a caixa voltou com `withSpring`); `useTapGesture` no fundo contou os toques.
+- **Não verificado:** iOS (sem macOS); aparelho físico; TalkBack; **pinça** (o `adb` não gera dois dedos); development
+  build; o tema claro do app (o emulador estava em tema escuro); desempenho com muitos elementos.
+
+### Gestos sobre elementos SVG: achado e decisão
+
+O Gesture Handler 3 permite anexar um gesto a um elemento do `react-native-svg` com `InterceptingGestureDetector`
+(em volta do `<Svg>`) e `VirtualGestureDetector` (em volta do `<Circle>`, por exemplo). No emulador:
+- **sem** `onPress` no `Circle`, um toque no círculo foi entregue ao gesto do **fundo** (o detector virtual não disparou);
+- **com** `onPress={() => {}}` no `Circle` (como no exemplo da documentação, que não explica o motivo), o detector virtual
+  passou a receber os toques do círculo e o fundo deixou de receber esses toques.
+Ou seja, para o hit-testing do SVG um elemento só vira alvo de toque se tiver um manipulador de toque. **Decisão de
+arquitetura:** o editor **não** usa detectores por elemento. Haverá **um detector no canvas inteiro** (toque, arrasto,
+pinça e toque longo compostos) e **o hit-testing é feito pelo núcleo puro**, em coordenadas de tela, independentemente
+do SVG. Motivos: (1) não depende desse detalhe não documentado; (2) não cria um gesto por vértice e por aresta (centenas
+de instâncias de hooks); (3) vale igual para um renderizador Skia; (4) é testável em Node; (5) o alvo de toque em
+unidades de tela (≈ 48 dp) é independente do desenho.
+
+### Camadas do editor
+
+- **A. Domínio** (`src/domain/graph`): fonte da verdade de vértices, arestas, orientação, pesos, propriedades,
+  representações, serialização e leitura. **Nada visual dentro de `Graph`; o JSON v1 não muda.**
+- **B. Núcleo puro** (`src/features/graph-editor/core/`): TypeScript sem React, RN, Expo, JSX, gestos, SVG, animação nem
+  Zustand. Importa só o domínio e a si mesmo. Responsabilidades futuras (um módulo por incremento): coordenadas de
+  mundo e de tela e transformações da câmera (3.1: `worldToScreen`, `screenToWorld`, `zoomAt`, `fitToBounds`);
+  `GraphLayout` e posicionamento (3.2); geometria dos elementos e identificação por posição (3.3); comandos do editor e
+  histórico (3.4). Hoje a pasta só tem `index.ts` (contrato) e `boundary.test.ts`.
+- **C. Interface** (`src/features/graph-editor/`): desenha vértices e arestas, recebe os toques e os traduz em
+  **ações** do núcleo, mostra controles, propriedades e representações, executa animações. Não decide regras do grafo
+  nem faz geometria.
+- **Store Zustand** (3.4, **não criada**): liga A, B e C. Guarda o estado do editor `{ graph, layout, seleção, modo,
+  câmera, histórico }` e só **chama** funções puras do núcleo e do domínio; nenhuma regra mora na store nem em
+  componentes. Dependências só para baixo: C → store → B → A.
+
+### Contrato do `GraphLayout` (especificação; implementação no 3.2)
+
+- **O que é.** Posição de cada vértice em **coordenadas de mundo**: `GraphLayout = { positions: Record<VertexId, { x, y }> }`.
+  Números finitos (`-0` vira `0`), eixo y para baixo, origem livre.
+- **Chave = id técnico** (`v1`, `v2`…), **nunca o rótulo**: renomear um vértice não mexe na posição, e rótulos repetidos
+  não causam ambiguidade.
+- **Não é parte do `Graph`** e não altera o modelo matemático. Mover um vértice **só** muda o layout (um passo de
+  histórico); a referência do `Graph` se preserva, então as representações memorizadas não são recalculadas.
+- **Independe da câmera** (`{ x, y, scale }`) e do tamanho da tela: nunca guarda coordenadas de tela.
+- **Reconciliação** `reconcileLayout(graph, layout)`: descarta posições de vértices que não existem mais (órfãs) e
+  posiciona os que ainda não têm posição; idempotente. Vértice sem posição é um estado válido até a reconciliação.
+- **Posicionamento inicial automático:** `circularLayout(graph)` determinístico (para exemplos e documentos sem layout);
+  criação por toque usa o ponto tocado, já convertido para mundo.
+- **Imutável, puro e determinístico** (`placeVertex`, `moveVertex`, `removePosition`, `boundsOf`).
+- **Serialização própria no futuro** (3.13): `LayoutDocument` v1 `{ schemaVersion, graphId, positions }`, separado do
+  JSON do `Graph`, com a mesma disciplina de validação da leitura de grafos e arquivos de referência próprios. O
+  documento do `Graph` v1 não ganha nenhum campo.
+
+### IDs e histórico: estratégia (corrige o ROADMAP; implementação no 3.4)
+
+A decisão anterior do ROADMAP ("desfazer restaura também os contadores de ids") **está errada**: ela reabriria um id
+já emitido. Princípio do domínio: um id removido **nunca** é reaproveitado, e a identidade técnica **não** depende do
+rótulo. Regras do histórico:
+
+1. **Desfazer uma criação não libera o id.** Depois de desfazer, uma operação **independente** nova **não** pode
+   reutilizar o id da criação desfeita.
+2. **Refazer restaura o mesmo id** da operação original (o instantâneo guarda o vértice com o seu id).
+3. **Operação nova depois de desfazer descarta o ramo de refazer** (a pilha `future`). Os ids do ramo descartado
+   continuam queimados (regra 1).
+4. **Os contadores são monotônicos e independentes dos instantâneos.** O histórico guarda instantâneos
+   `{ graph, layout }`, mas os contadores `nextVertexSeq` e `nextEdgeSeq` do estado **atual** são sempre o máximo já
+   alcançado na sessão. Ao desfazer ou refazer, o instantâneo de destino **herda os contadores do estado que está
+   sendo deixado** (que são os maiores, pois só os comandos os aumentam e um comando descarta o `future`):
+   `destino.graph = { ...destino.graph, nextVertexSeq: atual.nextVertexSeq, nextEdgeSeq: atual.nextEdgeSeq }`.
+   Isso é uma cópia de objeto comum, **sem alterar o domínio**: um `Graph` com contador à frente dos ids é um estado
+   válido (acontece depois de qualquer remoção). Como o contador atual **é** o piso de ids da sessão, não é preciso
+   outra variável; `redo(undo(s))` devolve `s` exatamente.
+5. **O domínio não muda agora.** No 3.4 pode valer acrescentar ao domínio uma função pura pequena (por exemplo
+   `reserveIds(graph, { vertex, edge })`, que só faz os contadores crescerem) em vez de repetir o spread; é decisão
+   daquele incremento, com testes próprios.
+6. **Rótulos são outra coisa.** O rótulo padrão sai do contador (`addVertex` sem rótulo usa A, B, C… por
+   `nextVertexSeq`); como o contador não recua, depois de desfazer a criação de C e criar outro vértice o rótulo
+   padrão será **D** (A, B, D). **Reaproveitar rótulos livres é uma decisão separada** do editor, a tomar no 3.4 ou no
+   3.6 e registrar aqui: (a) manter o rótulo vindo do contador (simples, coerente com o domínio, deixa lacunas); (b) o
+   editor calcular o menor rótulo livre (`nextFreeLabel`, função pura no núcleo) e passá-lo a `addVertex(graph, rótulo)`,
+   sem reaproveitar **id** algum. Recomendação provisória: **(b)**, por ser o que o aluno espera ver (A, B, C…).
+7. **Documentos e histórico sem colisão.** (i) Ao abrir um documento, os contadores vêm do arquivo (a leitura garante
+   que superam todos os ids presentes) e o histórico começa **vazio**; (ii) o documento gravado leva sempre os
+   contadores atuais, que são o piso da sessão; (iii) o histórico **não é persistido**; (iv) o layout é por id e só vale
+   para o grafo de mesmo `graph.id`, então um layout salvo nunca passa a apontar para outro vértice. Continua valendo a
+   limitação já documentada: ids de elementos removidos **antes** da gravação não podem ser reconstruídos de um
+   documento adulterado.
+8. **Testes do 3.4:** propriedade com sementes fixas sobre sequências de comandos, desfazer e refazer: **nenhuma
+   criação distinta compartilha id** e `redo(undo(s))` é exatamente `s`; modelo de referência independente; abrir
+   documento e continuar a editar não reemite ids.
+
+### Interação por toque (arquitetura; nada implementado)
+
+- **Um detector para o canvas**, com gestos compostos (API de hooks do Gesture Handler 3: `useTapGesture`,
+  `usePanGesture`, `usePinchGesture`, `useLongPressGesture` e as composições `useSimultaneousGestures`,
+  `useExclusiveGestures`, `useCompetingGestures`; não misturar com a API antiga de `Gesture.*`). Os nomes exatos e o
+  comportamento de cada composição serão conferidos no 3.6 e no 3.10, na versão instalada.
+- **Alvo de toque em unidades de tela, independente do zoom:** ≈ 48 dp de diâmetro (raio ≈ 24 dp) em volta do centro do
+  vértice, calculado depois de converter o centro do mundo para a tela. O desenho pode ser menor (ou maior com zoom),
+  mas **o alvo nunca encolhe** abaixo disso. Sobreposição: o vértice mais perto do toque vence, e o empate vai para a
+  ordem de inserção. Arestas têm tolerância própria em pixels de tela e só são acertadas fora dos vértices.
+- **Modo explícito** (Selecionar, Adicionar vértice, Conectar) e uma função pura `(modo, toque, o que há sob ele) → ação`.
+
+  | Modo | Toque | Arrasto que começa em vértice | Arrasto no fundo | Pinça | Toque longo |
+  | --- | --- | --- | --- | --- | --- |
+  | Selecionar | seleciona vértice/aresta ou limpa | move o vértice | desloca a câmera | zoom | propriedades |
+  | Adicionar vértice | cria vértice no vazio | desloca a câmera | desloca a câmera | zoom | — |
+  | Conectar | escolhe origem e depois destino | desloca a câmera | desloca a câmera | zoom | cancela |
+- **Um gesto, um dono.** Uma segunda ponta de dedo durante um arrasto de vértice o cancela (a posição volta) e passa a
+  pinça; `onFinalize` com `canceled` desfaz qualquer prévia (conexão pendente, posição provisória).
+- **Durante o arrasto** a posição vive em valor compartilhado do Reanimated (thread da interface) e só vai para a store
+  ao soltar (um passo de histórico). A câmera e a seleção ficam fora do histórico.
+
+### Renderização (intenção)
+
+- **Inicial:** `react-native-svg`. A interface do editor fala com uma **interface `GraphRenderer`**: recebe uma cena já
+  calculada pelo núcleo (posições na tela, geometria das arestas, estados) e **só desenha**; não trata gestos nem
+  faz hit-testing. Trocar por Skia depois não toca no núcleo, na store nem no domínio. Skia **não** foi instalado.
+- **A desenhar:** vértices circulares com rótulo; arestas retas; **arcos direcionados** com ponta de seta no destino;
+  **arcos opostos** (u→v e v→u) como curvas deslocadas, para não se sobreporem; pesos (ausente ≠ 0); destaque de seleção.
+- **Estados** (por vértice e por aresta, vindos de fora, nunca guardados no `Graph`): normal, selecionado, origem da
+  conexão, prévia; e, para os algoritmos das fases 6 em diante, estados de execução (por exemplo, visitado, na fila,
+  atual) a partir de um mapa `id → estado` produzido pelo rastro. Nada depende só de cor.
+- **Fora de escopo agora:** sistema genérico de renderização, Skia, animações de algoritmos. A primeira implementação
+  visual é o incremento 3.5.
+
+### Procedimento de teste em Android
+
+1. Subir o emulador: `& "$env:ANDROID_HOME\emulator\emulator.exe" -avd Pixel_6` (ou pelo Android Studio) e esperar o boot.
+2. No projeto: `npx expo start` (use `--clear` se o cache do Metro estiver suspeito) e aguardar "Waiting on http://localhost:8081".
+3. Conectar o emulador ao Metro e abrir o app no Expo Go:
+   `adb reverse tcp:8081 tcp:8081` e `adb shell am start -a android.intent.action.VIEW -d "exp://127.0.0.1:8081" host.exp.exponent`.
+   Com o cache do Metro vazio o primeiro bundle leva cerca de 1 minuto; se o Expo Go mostrar "Something went wrong"
+   antes disso, abra de novo depois que o Metro registrar `Android Bundled`.
+4. Conferir: as quatro abas, a navegação por toque (cartão da Início → Laboratório), tema claro e escuro (Configurações
+   do Android), e que o log (`adb logcat -s ReactNativeJS`) e o Metro não mostram erros.
+5. Toques e arrastos por `adb`: `adb shell input tap X Y` e `adb shell input swipe X1 Y1 X2 Y2 DURAÇÃO_MS`
+   (coordenadas em pixels da tela; capturar com `adb exec-out screencap -p`). **Pinça não é possível por `adb`**: testar
+   em aparelho físico ou com o gesto de dois dedos do próprio emulador (a confirmar no emulador usado).
+6. Encerrar: `adb emu kill` e parar o Metro.
+
+### Limitações desta etapa
+
+Só TypeScript, Jest e o emulador Android com Expo Go foram executados. **iOS, aparelho físico, TalkBack/VoiceOver,
+pinça, development build e desempenho com muitos elementos não foram verificados.** A tela de teste do emulador foi
+descartada: o repositório não tem nenhum editor nem tela falsa.
+
 ## Estratégia de testes
 
 - **Domínio:** Jest em ambiente Node (projeto `domain`), ao lado do código; entradas congeladas com
@@ -708,6 +937,18 @@ decodificado; `parseGraphJson` = texto → grafo.
   Em **mutação dirigida** (32 mutações no serializador, no leitor e no `index.ts`, escolhidas porque as verificações
   são novas) todas foram detectadas só por estas duas suítes; uma sobreviveu na primeira rodada (rótulo normalizado em
   silêncio, regra de validação da 4.2) e ganhou um teste de contrato.
+- **Fronteira do núcleo do editor** (`core/boundary.test.ts`, projeto Jest `editor-core`, Node): roda o ESLint de
+  verdade sobre trechos de código e confere que o núcleo e o domínio barram React, React Native, SVG, gestos,
+  Reanimated, Worklets, Zustand, Expo, pacotes da Shopify e componentes/tema/telas, que deixam passar o domínio e o
+  próprio núcleo, que o núcleo barra JSX, que a interface continua livre para usar essas bibliotecas, que os imports
+  relativos não saem da pasta e que o alias `@/domain/graph` funciona em Node. Em **mutação dirigida** (10 mutações
+  de `eslint.config.js` e `jest.config.js`) todas foram detectadas; uma só sobrevivia (o Skia, que o padrão `react-*`
+  já cobre pelo nome do pacote) e ganhou um caso com um pacote da Shopify sem "react" no nome.
+- **Ambiente de testes das bibliotecas do editor** (`graph-editor/native-stack.test.tsx`, projeto `app`): SVG
+  (`Svg`, `G`, `Line`, `Circle`, `Text`) renderiza com suas propriedades; toque e arrasto simulados por
+  `createGestureController` atualizam a tela; um componente com valor compartilhado e estilo animado monta. Não testa o
+  editor (não existe): se a pilha mudar (versões, resolver, mocks), estes testes quebram primeiro, e remover o
+  resolver, o `jestSetup` ou o mock de `getUIRuntimeHolder` de `jest.config.js` e `jest.setup.js` foi detectado.
 - **Componentes/rotas:** Jest + React Native Testing Library (`jest-expo`); rotas via `renderRouter`.
 - **Tema:** contraste calculado a partir dos tokens.
 - **Em dispositivo (manual):** gestos pinch/pan/drag, safe areas, comportamento da barra de abas nativa,
