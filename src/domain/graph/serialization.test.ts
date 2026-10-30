@@ -13,10 +13,13 @@ import {
   connect,
   deepFreeze,
   digraphWithOpposites as D,
+  directedOppositeArcs,
   graphOf,
   must,
   randomGraph,
+  readGolden as golden,
   triangleWithTail as U,
+  undirectedAfterRemovals,
   weightedDigraph as WD,
   weightedGraph as W,
   withVertices,
@@ -24,13 +27,6 @@ import {
 
 // Formato de persistência v1 (ver serialization.ts): chaves em ordem fixa, arrays na ordem de inserção,
 // `weight` só quando existe, contadores gravados como estão, sem nada de interface.
-
-declare const __dirname: string; // o Jest (CommonJS) fornece; evita depender dos tipos do Node
-const fs = jest.requireActual<{ readFileSync(path: string, encoding: 'utf8'): string }>('node:fs');
-
-/** Lê um arquivo de referência. Normaliza fim de linha e quebra final, que dependem do Git e do editor. */
-const golden = (name: string) =>
-  fs.readFileSync(`${__dirname}/golden/v1/${name}`, 'utf8').replace(/\r\n/g, '\n').replace(/\n$/, '');
 
 type Doc = {
   schemaVersion: number;
@@ -62,34 +58,6 @@ function manualCompact(graph: Graph): string {
     `"directed":${graph.directed},"vertices":[${vertices}],"edges":[${edges}],` +
     `"nextVertexSeq":${graph.nextVertexSeq},"nextEdgeSeq":${graph.nextEdgeSeq}}`
   );
-}
-
-// ---------------------------------------------------------------------------------------------
-// Grafos que dão origem aos arquivos de referência (os arquivos foram escritos à mão, não gerados).
-// ---------------------------------------------------------------------------------------------
-
-function undirectedAfterRemovals(): Graph {
-  let graph = createGraph({ id: 'g2', name: 'Grafo de teste: ação' });
-  graph = must(addVertex(graph)).graph; // v1 "A"
-  graph = must(addVertex(graph, 'Königsberg')).graph; // v2
-  graph = must(addVertex(graph, '日本語')).graph; // v3
-  graph = must(addVertex(graph, '🙂')).graph; // v4
-  graph = must(addVertex(graph, 'provisório')).graph; // v5 (será removido)
-  graph = connect(graph, 'v1', 'v2'); // e1, sem peso
-  graph = connect(graph, 'v2', 'v3', 0); // e2, peso zero
-  graph = connect(graph, 'v3', 'v4', -2.5); // e3, peso negativo
-  graph = connect(graph, 'v4', 'v1', 7); // e4, peso positivo
-  graph = connect(graph, 'v1', 'v3', 1); // e5 (será removida)
-  graph = must(removeEdge(graph, 'e5'));
-  return must(removeVertex(graph, 'v5'));
-}
-
-function directedOppositeArcs(): Graph {
-  let graph = createGraph({ id: 'g3', directed: true });
-  for (const label of ['A', 'B', 'C']) graph = must(addVertex(graph, label)).graph;
-  graph = connect(graph, 'v1', 'v2', 0); // e1
-  graph = connect(graph, 'v2', 'v1', -1); // e2, arco oposto com outro peso
-  return connect(graph, 'v2', 'v3'); // e3, sem peso
 }
 
 describe('arquivos de referência (golden) do esquema v1', () => {

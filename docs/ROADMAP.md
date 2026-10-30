@@ -92,12 +92,21 @@ Domínio puro em `src/domain/graph`, sem importar React, React Native, Expo ou Z
     distintos), contadores `nextVertexSeq`/`nextEdgeSeq` gravados como estão (ids removidos não são reaproveitados),
     sem estado de interface. Arquivos de referência em `golden/v1/`. Não valida: exige um `Graph` válido. Formato,
     versionamento e custo em `ARCHITECTURE.md`.
-  - ⬜ 4.2 **Desserialização e validação** (`parseGraph(input: unknown): Result<Graph>` e
-    `parseGraphJson(text: string): Result<Graph>`): fronteira de dados não confiáveis. Rejeita formato inválido,
-    versão e campos desconhecidos, ids repetidos, extremos inexistentes, laços, arestas duplicadas, pesos e rótulos
-    inválidos e contadores incoerentes; preserva ids e contadores; não compartilha referências com a entrada; protege
-    contra `__proto__` e contra entradas grandes (limites configuráveis, sem valor padrão no domínio). Inclui testes de
-    ida e volta e de propriedade (Σ graus = 2·|E| no não orientado; Σ entrada = Σ saída = |E| no orientado).
+  - ✅ 4.2 **Desserialização e validação** (`deserialization.ts`): `parseGraph(input: unknown, options?)` e
+    `parseGraphJson(text: string, options?)` devolvem `Result<Graph>` e nunca lançam. Fronteira de dados não
+    confiáveis: só o esquema v1; recusa campos ausentes e desconhecidos, versão desconhecida, ids não canônicos ou
+    repetidos, extremos inexistentes, laços, arestas repetidas, pesos inválidos, rótulos que exigiriam normalização e
+    contadores que não superam os ids presentes; preserva ids, contadores, ordem e a diferença entre sem peso e peso
+    zero. Leitura defensiva (sem getters, `[[Get]]` nem `Object.assign`; proxies e `__proto__` tratados), resultado sem
+    referências compartilhadas com a entrada, limites configuráveis `maxVertices`/`maxEdges`/`maxTextLength` sem
+    valor padrão no domínio. Erros novos: `INVALID_DOCUMENT { path, reason, cause? }` e `UNSUPPORTED_SCHEMA_VERSION`.
+    Ida e volta com a serialização, quatro representações e propriedades de grau conferidas; 71 mutações dirigidas
+    detectadas. Regras, erros, limitações e custo em `ARCHITECTURE.md`.
+  - ⬜ 4.3 **Consolidação e compatibilidade** (proposta, aguarda autorização): suíte de contrato entre serialização e
+    leitura; arquivos de referência *imutáveis* (hash conferido) e corpus de documentos inválidos também em arquivos;
+    fixture de documento única para os testes; ensaio da política de versões com um documento v2 de mentira (o leitor
+    v1 o recusa por versão, sem migração); revisão de `index.ts`. A medição em Hermes/Android antes de fixar limites
+    continua na Fase 4.
 - Critério: `npm test` cobre o domínio e passa sem nenhum import de React Native.
 
 **Custos das representações** (V = vértices, E = arestas, d(v) = grau; análise teórica; as medições pontuais em Node

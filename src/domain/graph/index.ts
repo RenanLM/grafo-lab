@@ -12,7 +12,15 @@ export {
 } from './types';
 
 // Erros e Result. `ok`/`fail` ficam públicos porque os algoritmos das próximas fases devolverão `Result`.
-export { fail, ok, type GraphError, type InvalidLabelReason, type Result } from './errors';
+export {
+  fail,
+  ok,
+  type DocumentCause,
+  type GraphError,
+  type InvalidDocumentReason,
+  type InvalidLabelReason,
+  type Result,
+} from './errors';
 
 // Operações de criação, edição e busca
 export {
@@ -45,8 +53,9 @@ export {
   successors,
 } from './queries';
 
-// Persistência: serialização canônica em JSON (esquema v1)
+// Persistência: serialização canônica em JSON (esquema v1) e leitura validada de documentos
 export { serializeGraph, type SerializeOptions } from './serialization';
+export { parseGraph, parseGraphJson, type ParseGraphOptions } from './deserialization';
 
 // Representações: lista e matriz de adjacência, matriz e lista de incidência
 export {

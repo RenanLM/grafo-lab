@@ -56,7 +56,7 @@ src/
   components/          UI compartilhada: Screen, Text, Card, Badge, EmptyState, GraphGlyph, ActionCard
   features/            telas e conteúdo por assunto (home, lessons, graph-editor, challenges)
   theme/               tokens (cores claro/escuro, espaçamento, tipografia) e useTheme
-  domain/graph/        modelo do grafo (Fase 2): types, errors, graph (operações), queries (grau e vizinhança), adjacency, adjacency-matrix, incidence e incidence-list (representações), serialization (JSON v1; arquivos de referência em `golden/v1/`), index (API pública)
+  domain/graph/        modelo do grafo (Fase 2): types, errors, graph (operações), queries (grau e vizinhança), adjacency, adjacency-matrix, incidence e incidence-list (representações), serialization (JSON v1; arquivos de referência em `golden/v1/`), deserialization (leitura validada do JSON v1), index (API pública)
   domain/              algoritmos e simulação entram nas fases seguintes
   storage/             (Fase 5+) SQLite e migrações
 docs/                  ROADMAP, ARCHITECTURE, REFERENCIAS
@@ -270,7 +270,7 @@ Jurkiewicz, §2.1, p. 20 (ver `REFERENCIAS.md`); a interface deve mostrar uma le
 
 `serializeGraph(graph, { pretty? })` (em `serialization.ts`) produz um JSON **canônico, versionado e determinístico** do
 `Graph`, sem depender do Expo SQLite nem de nada de interface. É a base da persistência local (Fase 5) e da importação
-e exportação (Fase 13). **Só a serialização existe**; a leitura com validação (`parseGraph`) é o Incremento 4.2.
+e exportação (Fase 13). A leitura com validação (`parseGraph`/`parseGraphJson`, Incremento 4.2) está na seção seguinte.
 
 ```json
 {
@@ -318,7 +318,7 @@ e exportação (Fase 13). **Só a serialização existe**; a leitura com valida�
 **Pré-condição e fronteira de validação.** `serializeGraph` trabalha com instâncias **válidas** de `Graph` e **não
 valida nem corrige nada**: um grafo adulterado fora do domínio é gravado como está (versão estranha, contador menor
 que os ids, ids repetidos), e `NaN`/`Infinity` viram `null` (o JSON não os representa). A rejeição desses documentos é
-da fronteira de dados externos, o `parseGraph` do Incremento 4.2.
+da fronteira de dados externos, o `parseGraph` (seção seguinte).
 
 **Versionamento.** `schemaVersion` identifica o layout. Qualquer mudança nas propriedades (por exemplo uma
 `capacity` por aresta, na Fase 12) **exige uma versão nova** e um leitor explícito para a antiga: o leitor v1 rejeita
@@ -357,6 +357,183 @@ O tempo cresceu linearmente com V + E (≈ 3,8× para 4× o tamanho); o texto oc
 total alocado). **Estes números são de Node/V8 num PC: não valem para Android ou iOS (Hermes) e não definem limite do
 aplicativo.**
 
+## Leitura e validação de documentos (esquema v1)
+
+`parseGraph(input: unknown, options?)` e `parseGraphJson(text: string, options?)` (em `deserialization.ts`) são a
+**fronteira de dados não confiáveis**: arquivo importado, banco, outra versão do app. Garantem que um `Graph` restaurado
+obedece às mesmas invariantes de um `Graph` montado pelas operações do domínio. Devolvem `Result<Graph>` e **nunca
+lançam**: JSON inválido, objetos hostis (getters, proxies que lançam), texto enorme e opções erradas viram `Result` de
+erro. O documento é recusado **por inteiro** ao primeiro problema; nada é corrigido em silêncio.
+
+**Opções** (`ParseGraphOptions`, todas opcionais). O domínio **não define valores padrão**: quem importa arquivos
+(a camada de persistência) escolhe, e a escolha pode depender do aparelho.
+
+| Opção | Significado |
+| --- | --- |
+| `maxVertices`, `maxEdges` | máximo de elementos de `vertices` e `edges`; conferido pelo `length` **antes** de ler qualquer elemento |
+| `maxTextLength` | máximo de `text.length` (unidades UTF-16, não bytes) aceito por `parseGraphJson`; conferido **antes** do `JSON.parse`; ignorado por `parseGraph` |
+
+Cada uma é `undefined` (sem limite) ou um inteiro seguro ≥ 0 (`0` vale). Outro valor devolve `INVALID_DOCUMENT` com
+`reason: 'INVALID_OPTION'` e `path: 'options.maxVertices'` (etc.): é erro de **quem chama**, devolvido como valor para
+manter a regra "nunca lança". Propriedades desconhecidas nas opções são ignoradas.
+
+Há um único **teto técnico**, que não é política do app: `vertices` com mais de ⌊√(2⁵³−1)⌋ = 94 906 265 elementos é
+`LIMIT_EXCEEDED`, porque a chave exata do par de extremos (`origem·V + destino`, ver Complexidade) deixaria de ser exata
+acima disso. Está muito além do que cabe em memória (cada vértice ocupa dezenas de bytes e o texto passaria de 2 GB) e
+vale junto de `maxVertices` (vence o menor).
+
+**Regras do esquema v1**
+
+| Parte | Regra |
+| --- | --- |
+| raiz | objeto simples com **exatamente** os 8 campos; `schemaVersion` é `1` |
+| `id`, `name`, `directed` | texto, texto, booleano. O domínio não impõe mais nada (o `id` pode ser vazio) e a leitura também não |
+| vértice `{ id, label }` | `id` **canônico** `v<n>` (n inteiro positivo seguro, sem zeros à esquerda, sinal ou espaços) e único; `label` **já normalizado**: o que `addVertex` aceitaria sem alterar (1 a 64 pontos de código, sem espaço nas pontas) |
+| aresta `{ id, source, target, weight? }` | `id` canônico `e<n>` e único; `source`/`target` são vértices do documento; sem laço; sem repetição no sentido da orientação (arcos opostos valem em grafo orientado); `weight` ausente = sem peso, número finito = com peso |
+| `weight` | `0` e negativos valem; `-0` vira `0`; `null`, `NaN`, `±Infinity`, texto e `undefined` explícito são recusados. **Ausente e `0` continuam diferentes** |
+| `nextVertexSeq`, `nextEdgeSeq` | inteiros seguros ≥ 1 e **maiores que o sufixo de todos os ids presentes**; guardados como vieram, nunca recalculados pela quantidade de elementos |
+| ordem | a do documento; nada é reordenado. Ids em ordem não crescente são aceitos (o domínio nunca os produz, mas nenhuma invariante depende disso) |
+
+As regras de peso e de rótulo **são as mesmas do domínio** (`isValidWeight`, `normalizeWeight`, `checkLabel`, exportadas
+de `graph.ts` mas não de `index.ts`), e um teste compara o leitor com `addVertex` e `addEdge` em centenas de casos
+aleatórios, inclusive o **código** e a **ordem** do primeiro erro.
+
+**Ordem das verificações** (o primeiro problema encontrado é o erro; é determinística):
+1. opções; 2. (JSON) tamanho do texto e sintaxe; 3. a raiz é objeto; 4. **`schemaVersion`** (ausente, tipo, versão);
+5. campos obrigatórios ausentes (na ordem do esquema) e depois campos desconhecidos; 6. tipos de `id`, `name`,
+`directed` e validade dos contadores; 7. forma e limite de `vertices` e `edges`, sem olhar os elementos; 8. cada
+vértice, na ordem (tipo do id → id canônico → id único → rótulo); 9. cada aresta, na ordem (tipos → id canônico → id
+único → origem existe → destino existe → não é laço → peso → não repete, a mesma ordem do `addEdge`); 10. contadores
+contra os ids. A versão vem antes de tudo porque decide *como* ler o resto: um documento v2 é "versão não suportada",
+não "campo desconhecido".
+
+**Erros.** Dois códigos novos em `GraphError`. Os erros só têm nomes de campos do esquema, índices, códigos e (na aresta
+repetida) um id canônico já validado: **nunca texto ou valores do documento, nem referências a objetos da entrada**
+(por isso um campo desconhecido é apontado pelo objeto que o contém, não pelo nome). O `JSON.parse` também não tem a
+sua mensagem repassada (ela cita trechos do texto e muda entre motores).
+
+| `code` | Campos | Quando |
+| --- | --- | --- |
+| `UNSUPPORTED_SCHEMA_VERSION` | `version: number`, `supported: number[]` | `schemaVersion` é um número diferente de 1 |
+| `INVALID_DOCUMENT` | `path`, `reason`, `cause?` | qualquer outro problema do documento |
+
+`path` é a propriedade (`vertices[2].label`, `edges[3].weight`, `nextVertexSeq`; `''` = o documento inteiro).
+`reason` (`InvalidDocumentReason`):
+
+| `reason` | Significado |
+| --- | --- |
+| `INVALID_JSON` | o texto não é JSON (inclui BOM no início e aninhamento que estoura o motor) |
+| `NOT_AN_OBJECT`, `NOT_AN_ARRAY` | esperava objeto simples (não `null`, array, `Map`, instância de classe…) ou array |
+| `SPARSE_ARRAY` | array com buraco; o `path` aponta o primeiro (`vertices[1]`) |
+| `UNREADABLE` | getter/setter, propriedade oculta ou objeto que lança ao ser inspecionado (proxy) |
+| `MISSING_FIELD`, `UNKNOWN_FIELD`, `WRONG_TYPE` | campo obrigatório ausente, campo fora do esquema, tipo errado em campo sem regra própria no domínio |
+| `INVALID_ID`, `DUPLICATE_ID` | id que não é canônico; id repetido |
+| `INVALID_COUNTER`, `COUNTER_TOO_LOW` | contador que não é inteiro seguro ≥ 1; contador não maior que os ids presentes |
+| `LIMIT_EXCEEDED` | texto, `vertices` ou `edges` acima do limite configurado |
+| `INVALID_OPTION` | opção inválida (erro de quem chama) |
+| `DOMAIN_RULE` | regra do modelo violada; o motivo vem em `cause` |
+
+`cause` (só com `DOMAIN_RULE`) usa os nomes do domínio, sem o valor do documento: `{ code: 'VERTEX_NOT_FOUND' }`,
+`{ code: 'SELF_LOOP' }`, `{ code: 'DUPLICATE_EDGE', existingEdgeId }`, `{ code: 'INVALID_WEIGHT' }` e
+`{ code: 'INVALID_VERTEX_LABEL', reason }` com `reason` em `NOT_A_STRING | EMPTY | TOO_LONG | NOT_NORMALIZED`
+(`NOT_NORMALIZED`: o rótulo tem espaço nas pontas). Quando o domínio já tem regra para o valor (rótulo, peso), o erro é
+`DOMAIN_RULE`; `WRONG_TYPE` fica para os campos que só o formato define.
+
+Exemplos de retorno:
+
+```ts
+parseGraphJson('{"schemaVersion":1,')
+// { ok: false, error: { code: 'INVALID_DOCUMENT', path: '', reason: 'INVALID_JSON' } }
+parseGraph({ ...doc, schemaVersion: 2 })
+// { ok: false, error: { code: 'UNSUPPORTED_SCHEMA_VERSION', version: 2, supported: [1] } }
+parseGraph(doc)  // edges[3] liga v2 a v2
+// { ok: false, error: { code: 'INVALID_DOCUMENT', path: 'edges[3]', reason: 'DOMAIN_RULE', cause: { code: 'SELF_LOOP' } } }
+parseGraph(doc)  // vertices[2].label === ' C'
+// { ok: false, error: { code: 'INVALID_DOCUMENT', path: 'vertices[2].label', reason: 'DOMAIN_RULE',
+//                       cause: { code: 'INVALID_VERTEX_LABEL', reason: 'NOT_NORMALIZED' } } }
+parseGraph(doc)  // nextVertexSeq 3, mas existe o vértice v3
+// { ok: false, error: { code: 'INVALID_DOCUMENT', path: 'nextVertexSeq', reason: 'COUNTER_TOO_LOW' } }
+parseGraphJson(text, { maxTextLength: 1_000_000 })  // text.length > 1 000 000, sem chamar o JSON.parse
+// { ok: false, error: { code: 'INVALID_DOCUMENT', path: '', reason: 'LIMIT_EXCEEDED' } }
+```
+
+**Segurança.**
+- **Leitura defensiva.** Só se leem **propriedades próprias de dados**, por descritor, **cada uma uma vez**; os valores
+  lidos é que são validados e copiados. Getters/setters nunca são executados (`UNREADABLE`), `[[Get]]` nunca é usado (um
+  proxy só vê `ownKeys`, `getPrototypeOf` e `getOwnPropertyDescriptor`) e um proxy que muda de valor entre leituras não
+  faz o resultado divergir do que foi validado. Exceção durante a inspeção (proxy que lança ou revogado) vira
+  `UNREADABLE`, com o `path` do objeto.
+- **Objetos simples.** Protótipo nulo ou um protótipo-raiz (o `Object.prototype` de qualquer realm); instâncias de
+  classe, `Map`, `Date` e arrays no lugar de objetos são `NOT_AN_OBJECT`. Propriedades herdadas são ignoradas. Chaves
+  desconhecidas, símbolos e propriedades ocultas recusam o documento, o que inclui `__proto__`, `constructor` e
+  `prototype`: o texto `{"__proto__": …}` cria uma propriedade **própria** com esse nome (não troca o protótipo) e cai
+  nessa regra. Testes conferem que `Object.prototype` não muda.
+- **Resultado reconstruído.** Montado só com valores verificados, em objetos e arrays **novos** (nada de
+  `Object.assign`, spread ou cópia de protótipo): não compartilha objeto ou array com a entrada, e alterar a entrada
+  depois não muda o grafo. Strings são imutáveis e compartilhadas por referência, o que é seguro.
+- **Alocação.** Os arrays nunca são pré-alocados pelo `length` declarado; `length > limite` é recusado antes de ler
+  qualquer elemento; um array esparso é recusado no primeiro buraco (mesmo com `length` 2³² − 1); um id gigante é
+  recusado em O(1) pelo comprimento; um rótulo gigante não vira lista de pontos de código (`checkLabel` corta em 128
+  unidades UTF-16). Não há recursão própria (a profundidade de inspeção é fixa).
+
+**Limitações conhecidas** (documentadas, não corrigíveis no formato):
+- **Contadores e ids históricos.** Um documento só prova que os contadores são maiores que os ids **presentes**. Os ids
+  de elementos removidos não existem mais no arquivo, então `nextVertexSeq: 4` com os vértices `v1` e `v2` tanto pode
+  ser um grafo legítimo em que `v3` foi removido quanto um documento adulterado que baixou o contador de 9 para 4
+  (e faria `v3` ser reemitido). A defesa é de integridade do arquivo (assinatura, banco local), não do formato; um teste
+  fixa esse comportamento.
+- **Chaves repetidas no texto** (`{"id":"a","id":"b"}`): o `JSON.parse` do ECMAScript fica com a última e o parser não
+  enxerga as outras; o resultado é bem definido e o `serializeGraph` nunca as produz.
+- **BOM** no início do texto não é JSON válido e é recusado; retirá-lo, se for o caso, cabe a quem lê o arquivo.
+- **`id` do grafo** vem do documento e **não é trocado**: duplicar ou renomear na importação é decisão da camada de
+  persistência.
+- `maxTextLength` mede `text.length` (unidades UTF-16); o limite em bytes do arquivo cabe a quem o lê.
+
+**Complexidade** (V vértices, E arestas, L = comprimento do texto):
+- **`JSON.parse`** (só `parseGraphJson`): Θ(L) em tempo e Θ(L) em espaço (a árvore de objetos e strings do documento),
+  que pode ser coletada quando a função retorna. É o piso do custo e não depende do modelo.
+- **Inspeção:** Θ(V + E) descritores lidos (no máximo 2 por vértice, 4 por aresta, 1 por campo simples) e um `ownKeys`
+  por objeto, todos de tamanho constante.
+- **Validação do modelo:** Θ(V + E) esperado, com índices de hash: `Map` id do vértice → posição (unicidade dos ids e
+  busca das extremidades), `Set` dos números de sequência dos ids de aresta (ids canônicos e números se correspondem 1
+  a 1, e chaves inteiras custam bem menos que strings) e `Map` do par de extremos → id da aresta, com a chave inteira
+  `origem·V + destino` (posições dos vértices; no não orientado, a menor posição primeiro). Sem esses índices seriam
+  Θ(E²) para as arestas repetidas e Θ(V·E) para achar as extremidades. Cada id custa O(1) (≤ 17 caracteres, checado
+  antes de varrer), cada rótulo O(|rótulo|) com o texto cortado em 128 unidades; `id` e `name` do grafo são copiados por
+  referência. "Esperado" porque a tabela de hash tem custo médio O(1) por operação.
+- **Total Θ(L + V + E).** Espaço além do `JSON.parse`: Θ(V + E) (listas de elementos lidos, `Set`, `Map` e o `Graph`
+  devolvido). O tamanho **real** do texto escapado entra em L: ver a fórmula de tamanho na seção anterior (≈ 45 a 49
+  caracteres por elemento com rótulos curtos, ≈ 70 com rótulos de 64 caracteres e pesos). Um texto com escapes
+  (`ç`, `🙂`) é maior que o canônico, mas o custo continua linear em L.
+
+**Medição pontual** (Node 24.12, i5-11400H, 16 GB; um processo por estratégia e tamanho, 3 rodadas alternadas; E ≈ 4V,
+`--expose-gc`; tempo = mediana; "curto" = rótulos A, B… sem pesos; "longo" = rótulos de 64 caracteres e peso em toda
+aresta). `JSON.parse` e a validação são medidos **separadamente**: "validação" = `parseGraph` sobre o objeto já
+decodificado; `parseGraphJson` = texto → grafo.
+
+| Grafo | Texto | `JSON.parse` | validação (`parseGraph`) | `parseGraphJson` | cópia estrutural sem validar |
+| --- | --- | --- | --- | --- | --- |
+| V = 10 000, E = 40 000, curto | 2,2 MB | 13,1 ms | 42,6 ms | 58,3 ms | 1,9 ms |
+| V = 40 000, E = 160 000, curto | 9,1 MB | 64,0 ms | 187,6 ms | 244,7 ms | 7,1 ms |
+| V = 160 000, E = 640 000, curto | 37,4 MB | 384,7 ms | 980,9 ms | 1 448,5 ms | 24,7 ms |
+| V = 40 000, E = 160 000, longo | 13,3 MB | 95,2 ms | 213,4 ms | 305,6 ms | 8,1 ms |
+
+- **Crescimento:** para 4× o tamanho, a validação levou ≈ 4,4× e ≈ 5,2× (e `parseGraphJson` ≈ 4,2× e ≈ 5,9×):
+  um pouco acima do linear (tabelas de hash maiores que o cache e coleta de lixo), longe do quadrático (16×).
+- **Quem custa o quê:** a validação custou ≈ 2,2× a ≈ 3,3× o `JSON.parse`, ou seja, ≈ 0,9 µs a ≈ 1,2 µs por elemento
+  (vértice ou aresta): o preço de inspecionar e validar cada objeto. A cópia estrutural sem validar (≈ 0,04 µs por
+  elemento) é só o piso do custo de montar o resultado.
+- **Preço da leitura defensiva** (descritores em vez de `obj[chave]`, que executaria getters): ≈ 1,3× a ≈ 1,8× o tempo
+  de uma variante direta e **insegura** usada só nesta medição. Foi mantida: é o que impede a execução de getters e
+  o uso do `[[Get]]` em proxies.
+- **Memória:** o `Graph` devolvido retém ≈ o mesmo que a árvore do `JSON.parse` (43,3 MB contra 41,5 MB em V = 160 000).
+  O pico (árvore + índices + resultado) **não foi medido**; deve ficar na ordem de 2× a 3× o resultado.
+- A primeira versão usava `Set`/`Map` com chaves de texto (`"v1|v2"`) para os ids e pares e levou ≈ 300 ms em V = 40 000;
+  trocá-las por posições e chaves numéricas (`origem·V + destino`) deixou-a em ≈ 190 ms, sem mudar o resultado.
+- **Estes números são de Node/V8 num PC: não valem para Android ou iOS (Hermes) e não definem limite do aplicativo.**
+  A decisão dos limites padrão (`maxVertices` etc.) fica para a camada de persistência, depois da medição em aparelho
+  modesto (ROADMAP, Fase 4).
+
 ## Estratégia de testes
 
 - **Domínio:** Jest em ambiente Node (projeto `domain`), ao lado do código; entradas congeladas com
@@ -376,6 +553,24 @@ aplicativo.**
   saída; uma segunda implementação do texto compacto, escrita por concatenação, é comparada com o serializador em 400
   grafos pseudoaleatórios; um teste fixa `GRAPH_SCHEMA_VERSION = 1` (mudar a versão exige novos arquivos de referência
   e uma migração). A leitura dos arquivos normaliza fim de linha (o Git no Windows pode converter LF em CRLF).
+- **Leitura de documentos** (`deserialization.test.ts`): (1) os **quatro arquivos de referência** são lidos e comparados
+  com grafos escritos à mão, e `serializeGraph(parseGraphJson(texto))` devolve o texto exato; (2) **ida e volta**
+  (`parseGraphJson(serializeGraph(g))` igual a `g`, compacto e legível) sobre grafos fixos, 200 grafos pseudoaleatórios
+  por orientação com remoções, pesos especiais, textos especiais e **60 sequências determinísticas de operações por
+  orientação** (cada grafo intermediário volta idêntico); (3) as **quatro representações** e os graus do grafo
+  restaurado coincidem com os do original (Σ graus = 2·|E| e Σ entrada = Σ saída = |E|); (4) um **corpus de ≈ 180
+  entradas inválidas**, cada uma conferida por `parseGraph` e por `parseGraphJson` com o mesmo erro exato, mais as que só
+  existem em memória (esparsas, getters, símbolos, proxies, `NaN`, `bigint`…); (5) **segurança**: `Object.prototype`
+  intacto após `__proto__`/`constructor`, getters nunca chamados, proxy sem `[[Get]]`, cada propriedade lida uma vez,
+  nenhum objeto compartilhado com a entrada, erros sem texto do documento; (6) **concordância com o domínio**:
+  rótulos e arestas aleatórios comparados com `addVertex`/`addEdge`; (7) **corrupção aleatória** (3 000 objetos e
+  2 500 textos): nunca lança e, se aceita, o grafo passa por um verificador de invariantes independente; (8) escala
+  (30 mil vértices e 120 mil arestas) que estouraria o tempo do teste se a validação fosse quadrática.
+  Em **mutação dirigida** (71 mutações em `deserialization.ts` e nas regras compartilhadas de `graph.ts`: ids repetidos,
+  contadores, laços, pesos e rótulos inválidos, campos e versões desconhecidos, objetos compartilhados, limites, extremos
+  trocados etc.) todas foram detectadas; duas sobreviveram na primeira rodada (array no lugar de objeto, protegido
+  também pela checagem de protótipo, e a checagem barata do comprimento do id, que só muda o custo) e ganharam testes
+  próprios.
 - **Componentes/rotas:** Jest + React Native Testing Library (`jest-expo`); rotas via `renderRouter`.
 - **Tema:** contraste calculado a partir dos tokens.
 - **Em dispositivo (manual):** gestos pinch/pan/drag, safe areas, comportamento da barra de abas nativa,

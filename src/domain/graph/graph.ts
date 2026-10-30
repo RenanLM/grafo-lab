@@ -1,4 +1,4 @@
-import { fail, ok, type Result } from './errors';
+import { fail, ok, type InvalidLabelReason, type Result } from './errors';
 import {
   GRAPH_SCHEMA_VERSION,
   type Edge,
@@ -191,12 +191,16 @@ function connects(directed: boolean, edge: Edge, source: VertexId, target: Verte
   return !directed && edge.source === target && edge.target === source;
 }
 
-function isValidWeight(weight: unknown): weight is number {
+// As regras de peso (`isValidWeight`, `normalizeWeight`) e de rótulo (`checkLabel`) são exportadas deste módulo, mas
+// NÃO por `index.ts`: o leitor de documentos (`deserialization.ts`) usa exatamente as mesmas, para não existirem
+// duas versões do que é um peso ou um rótulo válido.
+
+export function isValidWeight(weight: unknown): weight is number {
   return typeof weight === 'number' && Number.isFinite(weight);
 }
 
 /** `-0` vira `0` para que a igualdade estrutural não distinga os dois zeros. */
-function normalizeWeight(weight: number): number {
+export function normalizeWeight(weight: number): number {
   return weight === 0 ? 0 : weight;
 }
 
@@ -206,15 +210,31 @@ function withWeight(edge: Edge, weight: number | undefined): Edge {
   return weight === undefined ? rest : { ...rest, weight };
 }
 
-/** Aplica `trim()` e valida o tamanho (em pontos de código). Devolve o rótulo normalizado. */
-function normalizeLabel(label: unknown): Result<string> {
-  if (typeof label !== 'string') {
-    return fail({ code: 'INVALID_VERTEX_LABEL', label, reason: 'NOT_A_STRING' });
-  }
+export type LabelCheck =
+  | { readonly ok: true; readonly label: string }
+  | { readonly ok: false; readonly reason: InvalidLabelReason };
+
+/**
+ * Aplica `trim()` e valida o tamanho (em pontos de código). Devolve o rótulo normalizado ou o motivo da recusa.
+ * Um ponto de código ocupa no máximo 2 unidades UTF-16: acima de 2·MAX unidades o rótulo já passa do limite, e
+ * essa checagem barata evita montar a lista de pontos de código de um texto enorme (documento hostil).
+ */
+export function checkLabel(label: unknown): LabelCheck {
+  if (typeof label !== 'string') return { ok: false, reason: 'NOT_A_STRING' };
   const trimmed = label.trim();
-  if (trimmed === '') return fail({ code: 'INVALID_VERTEX_LABEL', label, reason: 'EMPTY' });
-  if (Array.from(trimmed).length > MAX_VERTEX_LABEL_LENGTH) {
-    return fail({ code: 'INVALID_VERTEX_LABEL', label, reason: 'TOO_LONG' });
+  if (trimmed === '') return { ok: false, reason: 'EMPTY' };
+  if (
+    trimmed.length > 2 * MAX_VERTEX_LABEL_LENGTH ||
+    Array.from(trimmed).length > MAX_VERTEX_LABEL_LENGTH
+  ) {
+    return { ok: false, reason: 'TOO_LONG' };
   }
-  return ok(trimmed);
+  return { ok: true, label: trimmed };
+}
+
+function normalizeLabel(label: unknown): Result<string> {
+  const checked = checkLabel(label);
+  return checked.ok
+    ? ok(checked.label)
+    : fail({ code: 'INVALID_VERTEX_LABEL', label, reason: checked.reason });
 }

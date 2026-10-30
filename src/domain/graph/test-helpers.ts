@@ -1,5 +1,24 @@
 // Apoio aos testes do domínio (nada aqui é importado pelo código de produção).
-import { addEdge, addVertex, createGraph, type Graph, type Result } from './index';
+import {
+  addEdge,
+  addVertex,
+  createGraph,
+  removeEdge,
+  removeVertex,
+  type Graph,
+  type Result,
+} from './index';
+
+declare const __dirname: string; // o Jest (CommonJS) fornece; evita depender dos tipos do Node
+const fs = jest.requireActual<{ readFileSync(path: string, encoding: 'utf8'): string }>('node:fs');
+
+/** Lê um arquivo de referência de `golden/v1`. Normaliza fim de linha e quebra final, que dependem do Git e do editor. */
+export function readGolden(name: string): string {
+  return fs
+    .readFileSync(`${__dirname}/golden/v1/${name}`, 'utf8')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n$/, '');
+}
 
 /** Congela o grafo inteiro: qualquer mutação nas operações vira TypeError (módulos são strict). */
 export function deepFreeze<T>(value: T): T {
@@ -143,3 +162,31 @@ export const weightedDigraph = (() => {
   graph = connect(graph, 'v2', 'v1', -1);
   return connect(graph, 'v2', 'v3');
 })();
+
+// Grafos que dão origem aos arquivos de referência de `golden/v1` (os arquivos foram escritos à mão, não gerados).
+
+/** Não orientado, Unicode, quatro estados de peso e contadores à frente dos ids (v5 e e5 foram removidos). */
+export function undirectedAfterRemovals(): Graph {
+  let graph = createGraph({ id: 'g2', name: 'Grafo de teste: ação' });
+  graph = must(addVertex(graph)).graph; // v1 "A"
+  graph = must(addVertex(graph, 'Königsberg')).graph; // v2
+  graph = must(addVertex(graph, '日本語')).graph; // v3
+  graph = must(addVertex(graph, '🙂')).graph; // v4
+  graph = must(addVertex(graph, 'provisório')).graph; // v5 (será removido)
+  graph = connect(graph, 'v1', 'v2'); // e1, sem peso
+  graph = connect(graph, 'v2', 'v3', 0); // e2, peso zero
+  graph = connect(graph, 'v3', 'v4', -2.5); // e3, peso negativo
+  graph = connect(graph, 'v4', 'v1', 7); // e4, peso positivo
+  graph = connect(graph, 'v1', 'v3', 1); // e5 (será removida)
+  graph = must(removeEdge(graph, 'e5'));
+  return must(removeVertex(graph, 'v5'));
+}
+
+/** Orientado, com arcos opostos (v1→v2 peso 0 e v2→v1 peso −1) e uma aresta sem peso. */
+export function directedOppositeArcs(): Graph {
+  let graph = createGraph({ id: 'g3', directed: true });
+  for (const label of ['A', 'B', 'C']) graph = must(addVertex(graph, label)).graph;
+  graph = connect(graph, 'v1', 'v2', 0); // e1
+  graph = connect(graph, 'v2', 'v1', -1); // e2, arco oposto com outro peso
+  return connect(graph, 'v2', 'v3'); // e3, sem peso
+}
