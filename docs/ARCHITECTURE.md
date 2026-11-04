@@ -767,8 +767,8 @@ unidades de tela (≈ 48 dp) é independente do desenho.
   geometria das arestas e identificação por posição (3.3: `edgeGeometry`, `edgeGeometries`, `hitTestVertex`, `hitTestEdge`,
   `hitTest`); comandos do editor, histórico e mensagens de erro (3.4: `applyAction`, `createEditorState`, `nextFreeLabel`,
   `graphErrorMessage`); cena do grafo e enquadramento inicial (3.5: `buildGraphScene`, `fitCameraToGraph`,
-  `graphContentBounds`). Hoje a pasta tem `index.ts` (contrato e exportações), `camera.ts` (3.1), `layout.ts` (3.2),
-  `geometry.ts` (3.3), `editor.ts` e `error-messages.ts` (3.4), `scene.ts` (3.5), seus testes (`*.test.ts`, mais
+  `graphContentBounds`); toque em ação (3.6: `tapToEditorAction`). Hoje a pasta tem `index.ts` (contrato e exportações), `camera.ts` (3.1), `layout.ts` (3.2),
+  `geometry.ts` (3.3), `editor.ts` e `error-messages.ts` (3.4), `scene.ts` (3.5), `tap.ts` (3.6), seus testes (`*.test.ts`, mais
   `boundary.test.ts`), e `test-helpers.ts` (gerador de sementes e `deepFreeze`, só para testes).
 - **C. Interface** (`src/features/graph-editor/`): desenha vértices e arestas, recebe os toques e os traduz em
   **ações** do núcleo, mostra controles, propriedades e representações, executa animações. Não decide regras do grafo
@@ -1230,17 +1230,17 @@ abrir um documento). O modo `connect` ainda não guarda a origem pendente (3.7).
 lógica privada `defaultLabel` do domínio (que não é exportada e não foi alterada). Um `Graph` restaurado pode ser uma cópia
 rasa nova (só quando o contador sobe), então comparar por referência não vale; compare por conteúdo.
 
-### Interação por toque (arquitetura; só o hit-testing está implementado, no 3.3)
+### Interação por toque (arquitetura; implementados: hit-testing no 3.3 e toque que cria vértice no 3.6)
 
 - **Um detector para o canvas**, com gestos compostos (API de hooks do Gesture Handler 3: `useTapGesture`,
   `usePanGesture`, `usePinchGesture`, `useLongPressGesture` e as composições `useSimultaneousGestures`,
   `useExclusiveGestures`, `useCompetingGestures`; não misturar com a API antiga de `Gesture.*`). Os nomes exatos e o
-  comportamento de cada composição serão conferidos no 3.6 e no 3.10, na versão instalada.
+  comportamento de cada composição serão conferidos no 3.10, na versão instalada (`useTapGesture` e `GestureDetector` já foram conferidos no 3.6).
 - **Alvo de toque em unidades de tela, independente do zoom:** ≈ 48 dp de diâmetro (raio ≈ 24 dp) em volta do centro do
   vértice, calculado depois de converter o centro do mundo para a tela. O desenho pode ser menor (ou maior com zoom),
   mas **o alvo nunca encolhe** abaixo disso. Sobreposição: o vértice mais perto do toque vence, e o empate vai para a
   ordem de inserção. Arestas têm tolerância própria em dp de tela e só são acertadas fora dos vértices. **Implementado**
-  em `hitTestVertex`, `hitTestEdge` e `hitTest` (`core/geometry.ts`, 3.3); o detector de gestos que os chama é o 3.10.
+  em `hitTestVertex`, `hitTestEdge` e `hitTest` (`core/geometry.ts`, 3.3); o toque os chama desde o 3.6 (`tapToEditorAction`); arrasto, pinça e toque longo compostos ficam para o 3.10.
 - **Modo explícito** (Selecionar, Adicionar vértice, Conectar) e uma função pura `(modo, toque, o que há sob ele) → ação`.
 
   | Modo | Toque | Arrasto que começa em vértice | Arrasto no fundo | Pinça | Toque longo |
@@ -1255,7 +1255,7 @@ rasa nova (só quando o contador sobe), então comparar por referência não val
 
 ### Cena e renderização SVG (incremento 3.5: `core/scene.ts`, `graph-renderer.ts`, `svg-graph-renderer.tsx`)
 
-**SOMENTE LEITURA.** O 3.5 desenha um grafo e o carrega na tela Laboratório; não há gestos, seleção por toque, conexão manual,
+**SOMENTE LEITURA no 3.5** (o 3.6 acrescentou o toque que cria vértices: ver "Modo Adicionar vértice e toque"). O 3.5 desenha um grafo e o carrega na tela Laboratório; não há gestos, seleção por toque, conexão manual,
 arrasto, zoom nem pan, e nenhum controle de edição foi criado. O caminho dos dados é:
 `store (graph, layout)` → `fitCameraToGraph` → `buildGraphScene` → `SvgGraphRenderer`. A **cena** é pura (núcleo, sem JSX);
 o **renderizador** só a percorre.
@@ -1321,7 +1321,7 @@ por `onLayout` (largura arredondada; altura = 0,9 × largura, entre 240 e 420 dp
 **Complexidade** (V vértices, E arestas): `buildGraphScene` e `fitCameraToGraph` Θ(V + E) em tempo e espaço (índices temporários
 de arcos, de pesos e de isolados; nenhuma busca O(E) por aresta); a conversão de coordenadas é O(1) por ponto; o SVG tem
 Θ(V + E) elementos (um círculo e um texto por vértice; um traço por aresta, mais seta e peso quando há). Depois de uma alteração a
-cena é **refeita inteira**, Θ(V + E), sem atualização incremental (ainda não há gestos, então não é recalculada a cada quadro).
+cena é **refeita inteira**, Θ(V + E), sem atualização incremental (no 3.6, uma vez por toque; sem arrasto, nada é recalculado a cada quadro).
 Carregar o exemplo é Θ(1) (tamanho fixo) mais o `reset` (Θ(V) para reconciliar o layout). Sem virtualização, índice espacial nem Skia.
 
 **Limitações conhecidas.** Texto não medido (rótulos e caixas dos pesos são estimativas); centro vertical do texto aproximado (linha
@@ -1338,6 +1338,145 @@ importante some em um dos temas, e o desenho troca de tema ao vivo. **Não verif
 aparelho físico, outras larguras (cobertas só por Jest: 320, 360, 411 e 600 dp), rotação, escala de fonte do sistema, desempenho
 com muitos vértices e toque. Os testes Jest **não** substituem essa verificação.
 
+### Modo Adicionar vértice e toque (incremento 3.6: `core/tap.ts`, `canvas-tap-detector.tsx`, `editor-controls.tsx`, `new-graph.ts`)
+
+O aluno começa um grafo vazio (orientado ou não), escolhe **Adicionar vértice** e toca no quadro: cada toque em área vazia cria um
+vértice **sob o dedo**; Desfazer e Refazer ficam na tela. **Não existem** (e não foram simulados) conexão de vértices (3.7), seleção por
+toque (3.8), arrasto (3.9), zoom e pan por gesto (3.10) nem edição de peso. O modo Selecionar pode ser escolhido, mas tocar no quadro
+nesse modo **não faz nada** (a dica do botão diz isso).
+
+**Caminho de um toque** (cada seta é uma chamada de função; nada percorre o caminho duas vezes):
+`GestureDetector` (um só, em volta da view do quadro) → `useTapGesture` → `onDeactivate` (só se não `canceled`) → `onCanvasTap(ponto)`
+na tela → `tapToEditorAction(estado, câmera, ponto, viewport)` (núcleo puro, `core/tap.ts`) → `dispatch(ação)` da store → `applyAction`
+(3.4: id, rótulo, posição no layout, histórico) → a tela refaz a cena (`buildGraphScene`) → `SvgGraphRenderer`. O estado do editor é lido
+**na hora do toque** (`store.getState()`), não de uma cópia de renderização.
+
+**`tapToEditorAction(estado, câmera, pontoDeTela, viewport, opções?) → EditorAction | undefined`.** Pura: não altera nada (só descreve a
+ação) e é determinística. Regras, em ordem (a primeira que falha devolve `undefined`, isto é, nenhuma ação): (1) câmera válida, `viewport`
+finito e > 0 e toque finito; (2) o toque está **dentro** do quadro, `0 ≤ x ≤ largura` e `0 ≤ y ≤ altura` (os limites contam); (3) o modo é
+`add-vertex`; (4) o `hitTest` do 3.3 (**a mesma função** do resto do editor; não há outro hit-testing, nem nos testes) responde
+`background`: toque sobre um vértice (alvo mínimo de 48 dp incluído) ou sobre uma aresta (tolerância de 12 dp) nunca cria nada, e a
+prioridade segue vértice > aresta > fundo; (5) `screenToWorld` (escala e translação, **uma vez** cada) e o resultado precisa ser finito.
+Devolve `{ type: 'add-vertex', position }` com um ponto **novo**. Ids e rótulos são do `applyAction` (3.4); a interface **não** tem um
+segundo algoritmo de rótulo.
+
+**Origem das coordenadas (o que precisa coincidir).** O ponto é **local ao quadro, em dp**, com a origem no canto superior esquerdo. É a
+**mesma** origem da câmera, do `viewport` e da cena. Para isso: (a) o detector envolve a **própria view do quadro** (`canvas-area`), então
+`event.x` e `event.y` do Gesture Handler já são locais a ela; `absoluteX` e `absoluteY` (da tela) **nunca** são usados; (b) o `viewport` da
+tradução é a mesma largura e altura (em dp) que alimentam a cena e o `<Svg>`, vindas do mesmo `onLayout`; (c) o SVG não tem `viewBox`
+escalado nem `transform` (a escala vale uma vez, na cena); (d) a borda de 1 dp é uma camada **sobre** o quadro (`pointerEvents: none`), não
+ocupa espaço dentro dele; (e) dp, não pixels físicos (a conversão por densidade é do próprio React Native).
+
+**Demonstração da conversão.** Câmera `{ x: 40, y: −30, scale: 2 }` (`tela = mundo · escala + (x, y)`) e toque em `(120, 90)` dp: `mundo = ((120 − 40) / 2,
+(90 − (−30)) / 2) = (40, 60)`; a volta, `(40·2 + 40, 60·2 − 30) = (120, 90)`, devolve o toque, então o círculo desenhado fica sob o dedo. Com a
+câmera neutra (grafo novo) o mundo é o próprio ponto de tela. Conferido por teste com escalas 0,25, 1 e 4 e translações positivas e negativas.
+
+**Detector (`canvas-tap-detector.tsx`)** (Gesture Handler 3.3.0, API de hooks; Reanimated 4.7.1 e Worklets 0.13.0 instalados):
+`useTapGesture` + `GestureDetector`. `runOnJS: true`: o callback roda no JavaScript, onde vivem a store e o React; nada é despachado de um
+worklet na thread de interface (o toque simples não precisa de resposta a cada quadro). O toque conclui em **`onDeactivate`**, uma vez; se
+`event.canceled`, nada acontece. `onActivate` e `onFinalize` **não** são usados (o `onFinalize` também dispara depois do `onDeactivate`:
+tratá-lo duplicaria a ação). Um único detector, na view nativa do quadro; **nenhum** nos elementos do SVG (decisão do 3.0). Um
+`InterceptingGestureDetector` **não** foi necessário: no emulador o toque no fundo do quadro chega ao detector mesmo com o SVG por cima,
+e o que está sob o dedo (vértice, aresta, fundo) é decidido pelo núcleo.
+- **`maxDistance` = 10 dp (achado no emulador).** No Android o padrão do Gesture Handler **não limita a distância** do toque (só a
+  duração, 500 ms). Um deslize rápido (300 ms, ~240 dp) começado sobre o quadro, ao rolar a página, era aceito como toque e criava um
+  vértice. Com `maxDistance: 10` (a folga de toque do Android é 8 dp), o deslize falha o gesto, a página rola e nada é criado. O
+  simulador de gestos do Jest não mede distância; os testes garantem a **configuração** entregue (`maxDist` 10 no gesto), e o efeito foi
+  conferido no emulador.
+- `shouldCancelWhenOutside` fica no padrão (o dedo que sai do quadro cancela o toque). Não é observável no Jest nem foi testado no emulador.
+
+**Mensagem do quadro vazio.** Fica **dentro** do quadro, sobreposta, centralizada e com `pointerEvents: none` (o toque a atravessa), e
+some quando o grafo deixa de ser vazio. Não pode ficar acima do quadro, **no fluxo**: no emulador, ao criar o primeiro vértice ela
+sumia, o quadro subia ≈ 36 dp e o vértice criado ficava longe do dedo. Dentro do quadro, nada muda de lugar. O texto muda com o modo
+("Toque no espaço para adicionar o primeiro vértice." em Adicionar vértice; "Selecione Adicionar vértice e toque no espaço para
+começar." nos demais). Não há camada invisível: a mensagem é visível e transparente ao toque.
+
+**Controles (`editor-controls.tsx`, `components/tool-button.tsx`).** `ModeBar` (grupo de rádio "Modo de edição") e `HistoryBar`. Só
+despacham ações do núcleo (`set-mode`, `undo`, `redo`) pela store da sessão, assinando só a fatia de que precisam; **nenhuma regra nem
+histórico próprio**. Trocar de modo não cria histórico (o objeto `history` é o mesmo) e Desfazer não desfaz o modo.
+
+| Controle | Estado | Aparência (não depende só de cor) | Acessibilidade |
+| --- | --- | --- | --- |
+| Selecionar | habilitado; ativo quando é o modo | ativo: fundo `primary`, "✓" e texto `onPrimary` | `radio`, `selected`, dica "Por enquanto, tocar no quadro não seleciona nada" |
+| Adicionar vértice | habilitado; ativo quando é o modo | idem | `radio`, `selected`, dica "Toque no espaço vazio do quadro para criar um vértice" |
+| Conectar | **desabilitado** até o 3.7; não responde ao toque | contorno **tracejado**, legenda "em breve" | `radio`, `disabled`, dica "Ainda não está disponível" |
+| Desfazer / Refazer | habilitados só se `selectCanUndo` / `selectCanRedo` | desabilitado: contorno tracejado | `button`, `disabled` |
+
+Alvos de toque de pelo menos 48 dp (`minTouchTarget`); o rótulo quebra em duas linhas em telas estreitas, e o rótulo tem `flexShrink` para
+não empurrar a marca "✓" para fora do botão (defeito visto no emulador). Os botões de início ("Novo grafo não orientado", "Novo grafo
+orientado", "Carregar exemplo") continuam na tela; nenhum modal nem biblioteca de bottom sheet foi usado.
+
+**Novo grafo.** `buildNewGraph(orientado, serial)` usa `createGraph` do domínio com id próprio (`novo-grafo-<n>`) e o nome
+"Novo grafo (não) orientado". A tela chama o `reset` da store (3.4) com `{ graph, mode: 'add-vertex' }`: **sem vértices nem arestas,
+layout vazio do grafo novo, histórico, seleção e erro vazios, modo `add-vertex`, câmera neutra** e nada herdado da sessão anterior
+(nem ids, nem posições, nem histórico). O exemplo continua igual (modo `select`, câmera enquadrada). **Começar outro grafo substitui o
+atual na hora, sem confirmação**, e Desfazer não o traz de volta.
+
+**Política da câmera durante a edição.** A câmera **não** está na store e **não** depende do grafo atual. Grafo novo: câmera **neutra**
+(`NEUTRAL_CAMERA`: a origem do mundo no canto do quadro, então cada vértice nasce no ponto tocado, em dp). Exemplo: **enquadrada uma vez**,
+a partir do grafo **carregado**. Adicionar vértice, desfazer, refazer e trocar de modo **não mudam a câmera** (o exemplo não é
+reenquadrado ao receber um vértice; um vértice criado depois fica no ponto tocado, mesmo fora do enquadramento original).
+Redimensionar ou girar: com a câmera neutra nada muda (os vértices ficam à mesma distância do canto, em dp; se o quadro encolher, o que
+ficar fora é recortado pelo SVG); com a enquadrada, o enquadramento é refeito a partir do grafo **carregado** (não do editado) quando o
+quadro é medido de novo. Não há gesto de zoom nem de pan.
+
+**Integração com o histórico (3.4, sem reimplementação na tela).** Cada toque que cria é **uma** ação `add-vertex` e **um** passo de
+histórico; desfazer remove o último vértice, refazer o devolve com o **mesmo** id, rótulo e posição, e um toque novo depois de desfazer
+**descarta** o refazer. Os ids **nunca** são reaproveitados: em um grafo novo, três toques dão `v1` A, `v2` B e `v3` C; Desfazer remove `v3`;
+um novo toque cria `v4` com o rótulo **C** (o menor rótulo livre), e o `v3` não volta. Os botões não mudam a câmera nem criam histórico.
+
+**Complexidade** (V vértices, E arestas, N = 24 amostras por curva no hit-testing): a tradução do toque é Θ(V + E·N) no pior caso (o do
+`hitTest`: Θ(V) se o toque acerta um vértice, senão confere as arestas) mais O(1) para a conversão; atualizar o grafo (`add-vertex`) e o
+layout é Θ(V) (cópias imutáveis; o passo de histórico guarda as referências, Θ(1)); a cena é refeita inteira, Θ(V + E); o SVG tem Θ(V + E)
+elementos. Tudo isso roda **uma vez por toque**: sem arrasto, nada é recalculado a cada quadro. Sem índice espacial nem dependência de
+desempenho (para dezenas ou centenas de vértices basta; limites só depois de medir, tarefa 4.6).
+
+**Validação no Android** (emulador Pixel_6, 1080 × 2400 a 420 dpi, 2,625 px por dp, Expo Go, SDK 58, `adb shell input tap` com toques reais
+sobre as capturas convertidas para pixels físicos; temas escuro e claro): (1) o Laboratório abre; (2) "Novo grafo não orientado" funciona;
+(3) "Novo grafo orientado" funciona (resumo "Grafo orientado…") e não herda o grafo anterior; (4) um toque cria A; (5) outro cria B; (6) o
+vértice aparece **exatamente sob o toque** (capturas: toque e centro do círculo no mesmo ponto); (7) o quadro **não se desloca** depois da
+criação; (8) tocar em A (e na aresta C → A do exemplo) não cria nada; (9) Desfazer remove o último vértice; (10) Refazer o devolve no mesmo
+ponto; (11) um toque novo depois de desfazer cria o rótulo livre (B) e desabilita o Refazer; (12) "Carregar exemplo" substitui o grafo,
+mantém o enquadramento ao receber um vértice (E) e zera o histórico; (13) os controles e o quadro são legíveis nos dois temas; (14) a
+navegação entre abas funciona e o Laboratório volta com o mesmo grafo. **Três defeitos reais achados e corrigidos nessa verificação**
+(nenhum aparece no Jest): o quadro subia quando a mensagem do quadro vazio sumia; a marca "✓" do modo ativo era cortada pelo botão;
+um deslize rápido sobre o quadro criava um vértice (o `maxDistance` acima). **Não verificado:** TalkBack e qualquer leitor de tela, iOS,
+aparelho físico, **pinça, arrasto e multitoque** (não pertencem a este incremento), outras larguras (só Jest), rotação, escala de fonte
+do sistema, toque longo, o cancelamento por sair do quadro, desempenho com muitos vértices, e a distinção entre a unidade `dp` do
+Jest e a do aparelho em outras densidades. O Metro registrou uma vez a linha "Project is incompatible with this version of Expo Go"
+na primeira abertura; o app abriu e funcionou em todas as seguintes (o menu do Expo Go mostrou SDK 58.0.0) e a linha não foi
+investigada a fundo.
+
+**Testes do 3.6** (117 novos; total do projeto **2020**, 37 suítes). `core/tap.test.ts` (projeto `editor-core`, 50): conversões **calculadas à mão**
+(câmera `{40, −30, 2}`, escalas 0,25 e 4, translações), os três modos, toque em vértice e em aresta nas bordas exatas (24 dp e 12 dp, em escalas
+0,25 e 4), arcos opostos, entradas inválidas (câmera, área, coordenadas, layout de outro grafo), toque fora do quadro (as bordas contam), área
+degenerada com o toque na borda, 500 casos aleatórios com o **próprio `hitTest` como oráculo** (sem segunda implementação), imutabilidade,
+determinismo e a integração com `applyAction` (A, B, C → desfazer → `v4` com o rótulo C). `new-graph.test.ts` (3); `editor-controls.test.tsx`
+(18: modos, estado ativo por marca **e** estado acessível, Conectar desabilitado, alvos de 48 dp, `set-mode` sem histórico, desfazer e refazer
+pelos botões, novo ramo, rótulo que encolhe); `canvas-tap-detector.test.tsx` (11: um `onTap` por toque, cancelado e falho não editam, local ×
+absoluto, consecutivos, callback mais recente, e a configuração `maxDist` 10, `runOnJS` e `shouldCancelWhenOutside`); `lab-screen-tap.test.tsx`
+(23: o toque de ponta a ponta com o gesto simulado: A sob o toque, B, toque em vértice e em aresta, modos Selecionar e Conectar, cancelado,
+fora do quadro, antes da medida (grafo novo e exemplo), desfazer e refazer, câmera não reenquadrada, redimensionamento, temas) e
+`lab-screen.test.tsx` (34, 12 a mais: novo grafo orientado e não orientado, nada herdado da sessão anterior, câmera estável, mensagem do quadro
+vazio dentro do quadro e sem capturar toques). **Mutação dirigida:** 70 mutações (21 de `tap.ts`, 11 do detector, 16 da tela, 19 dos controles,
+do botão e de `new-graph.ts`, e 3 do histórico vistas pela interface). Foram detectadas **68** (5 só depois de reforçar os testes: área de largura
+0 e de altura 0 com o toque na borda, `runOnJS` e `shouldCancelWhenOutside` na configuração do gesto, e o toque no exemplo antes de o canvas ser
+medido, que quebraria por não haver câmera enquadrada). As **2 equivalentes**: câmera inválida e toque não finito aceitos em `tap.ts`, porque o
+`hitTest` já recusa as duas entradas (a guarda explícita fica por clareza e custa O(1)). Cobrem: Y deslocado por offset de tela, coordenadas
+absolutas no lugar das locais, câmera ignorada, escala aplicada duas vezes, toque cancelado criando vértice, toque sobre elemento criando
+vértice, um toque gerando duas operações (`onFinalize`, `onActivate`, despacho duplo), histórico não atualizado, refazer não descartado, ids
+reaproveitados depois de desfazer, câmera reenquadrada a cada edição, reset que preserva dados (a tela e, desde o 3.5, a store) e botões
+habilitados indevidamente. As mutações do núcleo de edição (3.4) e da geometria (3.3) não foram repetidas; as 3 do histórico foram rodadas só
+contra os testes da interface, para provar que a tela também as detecta.
+
+**Limitações conhecidas.** Selecionar ainda não seleciona; Conectar está desabilitado; sem arrasto, zoom nem pan (o toque só cria
+vértices); "Novo grafo" substitui o grafo atual sem confirmação e sem desfazer; a câmera é estática (um vértice tocado perto da borda
+pode ficar parcialmente cortado, e fora do enquadramento original do exemplo ele pode ficar fora da área visível ao girar o aparelho); o
+texto do SVG não é medido (3.5); a mensagem do quadro vazio e os rótulos não acompanham a escala de fonte do sistema com garantia (não
+testado); o `shouldCancelWhenOutside` e o toque longo (> 500 ms, que não vira toque) não foram testados no aparelho; não há persistência
+do grafo criado (a sessão acaba ao desmontar a aba).
+
+
 ### Procedimento de teste em Android
 
 1. Subir o emulador: `& "$env:ANDROID_HOME\emulator\emulator.exe" -avd Pixel_6` (ou pelo Android Studio) e esperar o boot.
@@ -1351,7 +1490,11 @@ com muitos vértices e toque. Os testes Jest **não** substituem essa verificaç
 5. Toques e arrastos por `adb`: `adb shell input tap X Y` e `adb shell input swipe X1 Y1 X2 Y2 DURAÇÃO_MS`
    (coordenadas em pixels da tela; capturar com `adb exec-out screencap -p`). **Pinça não é possível por `adb`**: testar
    em aparelho físico ou com o gesto de dois dedos do próprio emulador (a confirmar no emulador usado).
-6. Encerrar: `adb emu kill` e parar o Metro.
+6. Toques sobre capturas: o visualizador mostra a imagem a 900 px de largura para 1080 px físicos, então multiplique as coordenadas por
+   1,2 (e 1 dp = 2,625 px a 420 dpi). Para provar que rolar a página não cria vértice, use `adb shell input swipe` começando **dentro**
+   do quadro (300 ms, centenas de pixels). O Expo Go mostra o menu do desenvolvedor na primeira abertura (feche pelo X), e o Metro com
+   `CI=1` **não observa arquivos**: reinicie-o para ver o código novo.
+7. Encerrar: `adb emu kill` e parar o Metro.
 
 ### Limitações desta etapa
 
@@ -1522,6 +1665,13 @@ descartada: o repositório não tem nenhum editor nem tela falsa.
   (o núcleo descarta o layout de outro grafo e reconcilia), não arredondar a largura medida (`canvasSize` arredonda de novo, só
   haveria uma renderização a mais) e `<= 0` × `< 0` em `canvasSize` (o teste seguinte da função já recusa a largura 0).
   Nota: o SVG fica escondido dos leitores de tela, então as consultas do RNTL pedem `includeHiddenElements`.
+- **Modo Adicionar vértice e toque do 3.6** (117 testes novos; total **2020**). `core/tap.test.ts` (projeto `editor-core`, 50: conversão
+  calculada à mão, modos, vértice e aresta nas bordas de 24 e 12 dp, entradas inválidas, bordas do quadro, `hitTest` como oráculo em 500 casos),
+  `canvas-tap-detector.test.tsx` (11), `editor-controls.test.tsx` (18), `new-graph.test.ts` (3), `lab-screen-tap.test.tsx` (23, o toque de ponta
+  a ponta com `createGestureController`) e `lab-screen.test.tsx` (34). **70 mutações dirigidas, 68 detectadas** (5 só depois de reforçar os
+  testes) e 2 equivalentes (a guarda de câmera e de ponto inválidos de `tap.ts`, que o `hitTest` repete). O simulador de gestos não mede
+  distância nem sair do quadro: isso se garante pela configuração do gesto e foi conferido no emulador. Detalhes em "Modo Adicionar vértice e
+  toque".
 - **Ambiente de testes das bibliotecas do editor** (`graph-editor/native-stack.test.tsx`, projeto `app`): SVG
   (`Svg`, `G`, `Line`, `Circle`, `Text`) renderiza com suas propriedades; toque e arrasto simulados por
   `createGestureController` atualizam a tela; um componente com valor compartilhado e estilo animado monta. Não testa o

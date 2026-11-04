@@ -4,7 +4,7 @@
 //   3.1 câmera (coordenadas de mundo ↔ tela) — pronta · 3.2 GraphLayout e posicionamento — pronto · 3.3 geometria das
 //   arestas (3.3A) e hit-testing (3.3B) — prontos · 3.4 comandos do editor, histórico e mensagens — pronto (a store Zustand
 //   fica em `graph-editor/editor-store.ts`, fora do núcleo) · 3.5 cena do grafo e enquadramento inicial — pronto (o
-//   renderizador SVG fica em `graph-editor/`).
+//   renderizador SVG fica em `graph-editor/`) · 3.6 tradução do toque em ação (`tap.ts`) — pronto.
 // Importa apenas o domínio (`@/domain/graph`) e a si mesmo. O ESLint barra o resto e `boundary.test.ts` confere também
 // os imports relativos que saiam desta pasta. A interface (`src/features/graph-editor/*.tsx`) e a futura store
 // Zustand dependem deste núcleo, nunca o contrário.
@@ -60,6 +60,9 @@ export {
   type LineSegment,
   type QuadraticCurve,
 } from './geometry';
+
+// Toque: traduz um toque no canvas (dp, relativo ao canvas) em ação do editor, usando o hit-testing do 3.3
+export { tapToEditorAction } from './tap';
 
 // Cena: a descrição visual do grafo em dp de tela, pronta para um renderizador, e o enquadramento inicial da câmera
 export {

@@ -130,11 +130,11 @@ estão em `ARCHITECTURE.md`):
 A etapa 3.4B registrou a tabela comparativa e as medições em `ARCHITECTURE.md`; limites de tamanho para a interface
 só depois de medir em Hermes e em Android com poucos recursos (tarefa 4.6).
 
-## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 a 3.5 concluídos; os demais aguardam autorização)
+## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 a 3.6 concluídos; os demais aguardam autorização)
 
 Só os incrementos 3.0 (infraestrutura), 3.1 (câmera pura), 3.2 (`GraphLayout` puro), 3.3 (geometria das arestas e
-hit-testing puros), 3.4 (núcleo de edição, histórico e store Zustand) e 3.5 (renderizador SVG somente leitura e exemplo no
-Laboratório) foram feitos; **ainda não é possível editar o grafo no canvas**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
+hit-testing puros), 3.4 (núcleo de edição, histórico e store Zustand), 3.5 (renderizador SVG somente leitura e exemplo no
+Laboratório) e 3.6 (modo Adicionar vértice, toque no canvas e desfazer/refazer) foram feitos; **já é possível criar vértices tocando no canvas, mas ainda não conectar, selecionar, arrastar, ampliar nem deslocar**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
 quando houver regra nova e uma mensagem de commit. Tamanhos: **S** (um módulo puro e seus testes) e **M** (lógica +
 interface). Ordem como no prompt mestre: renderizar, criar, conectar, selecionar; **depois** arrastar, deslocar e
 ampliar, em incrementos separados.
@@ -361,13 +361,36 @@ ampliar, em incrementos separados.
     `ARCHITECTURE.md`, "Cena e renderização SVG".
   - *Commit:* `feat(editor): render graphs with react-native-svg`
 
-- ⬜ **3.6 Modo Adicionar vértice e barra de modos** (M). Barra contextual (Selecionar / Adicionar vértice / Conectar;
-  "Executar" aparece desabilitado e rotulado "em breve"), toque no vazio cria vértice, desfazer/refazer na interface.
-  - *Aceite:* o toque cria o vértice **sob o dedo** com qualquer zoom e deslocamento (câmera de teste); rótulo padrão
-    A, B, C… (regra de rótulo livre conforme a decisão do 3.4); desfazer/refazer habilitados conforme o histórico; um
-    novo vértice depois de desfazer **nunca** reaproveita o id; mensagem curta e instrutiva no estado vazio.
-  - *Testes:* ação pura `(modo, toque) → ação`; RNTL dos botões; gesto simulado com os utilitários de teste do
-    gesture-handler (a confirmar na 3.0).
+- ✅ **3.6 Modo Adicionar vértice e toque** (M). Três partes, cada uma fechada com `npm run check`. **Só criar vértices:** sem conectar,
+  selecionar por toque, arrastar, zoom, pan, editar pesos, SQLite nem algoritmos.
+  - *A. Tradução pura do toque* (`core/tap.ts`): `tapToEditorAction(estado, câmera, ponto, viewport) → EditorAction | undefined`. Só cria
+    com o modo `add-vertex`, dentro do quadro e quando o `hitTest` do 3.3 (o mesmo; nenhum hit-testing novo) responde `background`:
+    toque em vértice, em aresta, fora do quadro, inválido ou cancelado não cria nada. A posição vem de `screenToWorld` (escala e
+    translação uma vez cada). Pura e determinística; nada é alterado.
+  - *B. Controles* (`components/tool-button.tsx`, `editor-controls.tsx`, `new-graph.ts`, `button.tsx` com variante): **Novo grafo não
+    orientado / orientado** (API do domínio + `reset` da store: vazio, histórico, seleção e erro zerados, modo `add-vertex`, câmera
+    neutra, sem herdar nada da sessão anterior; substitui o grafo atual sem confirmação), **Selecionar** (escolhível; o toque no
+    quadro não faz nada até o 3.8), **Adicionar vértice**, **Conectar** (**desabilitado**, tracejado, "em breve", até o 3.7), **Desfazer** e
+    **Refazer** (pelas ações do núcleo e por `selectCanUndo/selectCanRedo`; nenhum histórico na tela). Modo ativo identificado por
+    "✓", fundo e `selected`, não só por cor. "Executar" não foi criado (não há algoritmos).
+  - *C. Gesto e integração* (`canvas-tap-detector.tsx`, `lab-screen.tsx`): `useTapGesture` + `GestureDetector` do Gesture Handler 3.3.0,
+    `runOnJS: true`, conclusão em `onDeactivate` (cancelado nunca edita), **um** detector no quadro e nenhum nos elementos do SVG,
+    coordenadas **locais** (`x`, `y`; nunca `absoluteX/Y`) e `maxDistance` de 10 dp. A mensagem do quadro vazio fica dentro do quadro,
+    com `pointerEvents: none`. **Câmera:** neutra no grafo novo, enquadrada uma vez no exemplo, e **nunca recalculada por edição**,
+    desfazer, refazer ou troca de modo.
+  - *Aceite:* o toque cria o vértice **sob o dedo** (escalas 0,25, 1 e 4 e translações conferidas em testes; no emulador, com a câmera
+    neutra e com a enquadrada do exemplo, por capturas); rótulos A, B, C (menor rótulo livre, regra do 3.4); desfazer e refazer conforme o histórico; um novo vértice depois de
+    desfazer **nunca** reaproveita o id (A, B, C → desfazer → `v4` com o rótulo C); mensagem instrutiva no estado vazio.
+  - *Android (emulador Pixel_6, Expo Go, `adb input tap` reais, temas escuro e claro):* itens 1 a 14 do roteiro conferidos (abre, novo
+    grafo nos dois tipos, A, B, vértice sob o toque, quadro parado, toque em vértice e em aresta não cria, desfazer, refazer, ramo novo,
+    exemplo, legibilidade nos dois temas, navegação). **Três defeitos achados só no aparelho e corrigidos:** o quadro subia quando a
+    mensagem do quadro vazio sumia; a marca "✓" era cortada; um deslize rápido sobre o quadro criava um vértice (padrão do Gesture
+    Handler no Android sem limite de distância). **Não verificado:** TalkBack, iOS, aparelho físico, pinça, arrasto e multitoque (fora do
+    incremento), outras larguras (só Jest), rotação, escala de fonte, toque longo, cancelamento por sair do quadro e desempenho.
+  - *Complexidade:* tradução Θ(V + E·N) (hit-testing; N = 24); atualizar grafo e layout Θ(V); cena Θ(V + E); SVG Θ(V + E) elementos; tudo
+    uma vez por toque (sem arrasto não há recálculo por quadro). Sem índice espacial.
+  - *Limitações:* Selecionar não seleciona; Conectar desabilitado; câmera estática; novo grafo sem confirmação; texto do SVG não medido.
+  - *Testes:* 117 novos; total do projeto **2020**. Mutação dirigida: 70 mutações, 68 detectadas (5 só depois de reforçar os testes) e 2 **equivalentes**. Detalhes em `ARCHITECTURE.md`, "Modo Adicionar vértice e toque".
   - *Commit:* `feat(editor): add vertex creation mode with undo and redo`
 
 - ⬜ **3.7 Modo Conectar** (M). Toque no vértice de origem, prévia da aresta até o dedo (ou até o alvo), toque no destino

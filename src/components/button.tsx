@@ -6,18 +6,27 @@ type Props = {
   label: string;
   onPress: () => void;
   accessibilityHint?: string;
+  /** `primary` (padrão): fundo `primary`. `secondary`: fundo da superfície, contorno e texto `primary`. */
+  variant?: 'primary' | 'secondary';
 };
 
-/** Botão de ação principal: fundo `primary`, texto `onPrimary` (par com contraste testado) e alvo de toque de 48 dp. */
-export function Button({ label, onPress, accessibilityHint }: Props) {
+/** Botão de ação: `primary` (texto `onPrimary` sobre `primary`) ou `secondary` (texto `primary` sobre `surface`), ambos com contraste testado e alvo de 48 dp. */
+export function Button({ label, onPress, accessibilityHint, variant = 'primary' }: Props) {
   const { colors } = useTheme();
+  const secondary = variant === 'secondary';
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityHint={accessibilityHint}
       onPress={onPress}
-      style={({ pressed }) => [styles.button, { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}>
-      <RNText style={[typography.label, { color: colors.onPrimary }]}>{label}</RNText>
+      style={({ pressed }) => [
+        styles.button,
+        secondary
+          ? { backgroundColor: colors.surface, borderColor: colors.primary, borderWidth: 1.5 }
+          : { backgroundColor: colors.primary },
+        { opacity: pressed ? 0.8 : 1 },
+      ]}>
+      <RNText style={[typography.label, { color: secondary ? colors.primary : colors.onPrimary }]}>{label}</RNText>
     </Pressable>
   );
 }

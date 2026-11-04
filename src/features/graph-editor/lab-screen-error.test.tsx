@@ -1,4 +1,5 @@
 import { render, screen, userEvent } from '@testing-library/react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { LabScreen } from './lab-screen';
 
@@ -11,7 +12,11 @@ jest.mock('./example-graph', () => ({
 
 describe('LabScreen: o exemplo não pôde ser montado', () => {
   it('avisa com o erro do domínio em português, mantém o estado vazio e não desenha nada', async () => {
-    await render(<LabScreen />);
+    await render(
+      <GestureHandlerRootView>
+        <LabScreen />
+      </GestureHandlerRootView>,
+    );
     const user = userEvent.setup();
     await user.press(screen.getByRole('button', { name: 'Carregar exemplo' }));
 
