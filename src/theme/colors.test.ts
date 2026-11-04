@@ -24,6 +24,8 @@ const pares: [ColorToken, ColorToken][] = [
   ['primary', 'background'],
   ['primary', 'surface'],
   ['primary', 'primaryMuted'],
+  // Canvas do grafo: rótulo do vértice sobre o preenchimento do círculo; peso, traço e seta sobre o fundo do canvas.
+  ['text', 'primaryMuted'],
 ];
 
 describe.each(['light', 'dark'] as const)('contraste do tema %s', (esquema) => {

@@ -270,7 +270,8 @@ domínio **deliberadamente não assume**:
      cada módulo).
    - **Imutável**, com ordem de inserção preservada (desempate estável para os algoritmos). Buscas por ID são
      lineares, adequadas ao tamanho dos grafos didáticos; algoritmos montam suas próprias estruturas (O(V+E)).
-8. **Renderização (Fase 3):** SVG atrás de interface `GraphRenderer`, para trocar por Skia depois.
+8. **Renderização (Fase 3):** SVG atrás do contrato `GraphRenderer` (props: cena, largura, altura), para trocar por Skia depois;
+   implementada no 3.5 (somente leitura).
 9. **Bibliografia fora do Git:** PDFs com direitos autorais ficam locais (`/*.pdf` ignorado).
 10. **Ícones gerados por script** a partir de um glifo vetorial único, para manter o app e a ilustração
     do estado vazio (`GraphGlyph`) coerentes.
@@ -765,9 +766,10 @@ unidades de tela (≈ 48 dp) é independente do desenho.
   `GraphLayout` e posicionamento (3.2: `placeVertex`, `moveVertex`, `boundsOf`, `circularLayout`, `reconcileLayout`);
   geometria das arestas e identificação por posição (3.3: `edgeGeometry`, `edgeGeometries`, `hitTestVertex`, `hitTestEdge`,
   `hitTest`); comandos do editor, histórico e mensagens de erro (3.4: `applyAction`, `createEditorState`, `nextFreeLabel`,
-  `graphErrorMessage`). Hoje a pasta tem `index.ts` (contrato e exportações), `camera.ts` (3.1), `layout.ts` (3.2),
-  `geometry.ts` (3.3), `editor.ts` e `error-messages.ts` (3.4), seus testes (`*.test.ts`, mais `boundary.test.ts`), e
-  `test-helpers.ts` (gerador de sementes e `deepFreeze`, só para testes).
+  `graphErrorMessage`); cena do grafo e enquadramento inicial (3.5: `buildGraphScene`, `fitCameraToGraph`,
+  `graphContentBounds`). Hoje a pasta tem `index.ts` (contrato e exportações), `camera.ts` (3.1), `layout.ts` (3.2),
+  `geometry.ts` (3.3), `editor.ts` e `error-messages.ts` (3.4), `scene.ts` (3.5), seus testes (`*.test.ts`, mais
+  `boundary.test.ts`), e `test-helpers.ts` (gerador de sementes e `deepFreeze`, só para testes).
 - **C. Interface** (`src/features/graph-editor/`): desenha vértices e arestas, recebe os toques e os traduz em
   **ações** do núcleo, mostra controles, propriedades e representações, executa animações. Não decide regras do grafo
   nem faz geometria.
@@ -1251,18 +1253,90 @@ rasa nova (só quando o contador sobe), então comparar por referência não val
 - **Durante o arrasto** a posição vive em valor compartilhado do Reanimated (thread da interface) e só vai para a store
   ao soltar (um passo de histórico). A câmera e a seleção ficam fora do histórico.
 
-### Renderização (intenção)
+### Cena e renderização SVG (incremento 3.5: `core/scene.ts`, `graph-renderer.ts`, `svg-graph-renderer.tsx`)
 
-- **Inicial:** `react-native-svg`. A interface do editor fala com uma **interface `GraphRenderer`**: recebe uma cena já
-  calculada pelo núcleo (posições na tela, geometria das arestas, estados) e **só desenha**; não trata gestos nem
-  faz hit-testing. Trocar por Skia depois não toca no núcleo, na store nem no domínio. Skia **não** foi instalado.
-- **A desenhar:** vértices circulares com rótulo; arestas retas; **arcos direcionados** com ponta de seta no destino;
-  **arcos opostos** (u→v e v→u) como curvas deslocadas, para não se sobreporem; pesos (ausente ≠ 0); destaque de seleção.
-- **Estados** (por vértice e por aresta, vindos de fora, nunca guardados no `Graph`): normal, selecionado, origem da
-  conexão, prévia; e, para os algoritmos das fases 6 em diante, estados de execução (por exemplo, visitado, na fila,
-  atual) a partir de um mapa `id → estado` produzido pelo rastro. Nada depende só de cor.
-- **Fora de escopo agora:** sistema genérico de renderização, Skia, animações de algoritmos. A primeira implementação
-  visual é o incremento 3.5.
+**SOMENTE LEITURA.** O 3.5 desenha um grafo e o carrega na tela Laboratório; não há gestos, seleção por toque, conexão manual,
+arrasto, zoom nem pan, e nenhum controle de edição foi criado. O caminho dos dados é:
+`store (graph, layout)` → `fitCameraToGraph` → `buildGraphScene` → `SvgGraphRenderer`. A **cena** é pura (núcleo, sem JSX);
+o **renderizador** só a percorre.
+
+**`GraphScene`** (tudo `readonly`, em **dp de tela**): `graphId`, `directed`, `labelFontSize`, `summary`, `vertices` e `edges`.
+- `SceneVertex`: `id`, `label` (completo), `displayLabel` (exibido dentro do círculo), `center`, `radius`, `isolated`, `visible`.
+- `SceneEdge`: `id`, `sourceId`, `targetId`, `path` (`LineSegment` ou `QuadraticCurve`, já em dp), `arrow?` (só em grafo
+  orientado), `weight?` (`{ text, anchor, width, height }`, só se a aresta tem peso) e `visible`.
+- Assinatura: `buildGraphScene(graph, layout, camera, options?) → GraphScene | undefined`. A câmera entra como argumento próprio
+  (como em `hitTest`), e as opções são as de geometria mais `viewport` e `labelFontSize`. `undefined` = entrada inválida
+  (câmera inválida ou layout de **outro** grafo); grafo vazio dá cena vazia. Vértice sem posição, com posição não finita e aresta
+  sem geometria **não entram** na cena, e o resumo avisa.
+- A geometria das arestas **não é refeita**: vem de `edgeGeometries` e só é convertida; o SVG não reimplementa nada.
+
+**Convenção de coordenadas (a escala vale UMA vez).** Cada ponto do mundo passa por `worldToScreen` na cena; por isso o SVG não
+leva `transform` nem `viewBox` com escala (o `viewBox` é exatamente a área de desenho). Acompanham o zoom: posição e raio dos
+vértices, extremos, ápice e seta das arestas, âncora do peso (a mesma geometria do hit-testing: o que se vê é o que se toca). Ficam
+**constantes em dp**: espessura dos traços (2) e corpo do texto (14). A área de toque (48 dp) **não é desenhada nem simulada**.
+
+**Pesos.** Sem peso: nenhum texto nem caixa (a chave `weight` nem existe). Peso `0`: aparece `0`. Negativo: `-2`. Decimais com vírgula
+(`1,5`, pt-BR). A caixa do texto (fundo `surface`, borda `border`) é uma **estimativa** (0,6 do corpo por glifo + 4 dp de folga);
+a posição matemática da aresta não muda.
+
+**Rótulos.** `displayLabel` é o texto truncado por **pontos de código** (nunca separa um par substituto, como um emoji), com
+reticências. Quantos cabem é uma **estimativa** (glifo médio = 0,6 do corpo; caixa útil = 1,6 do raio; no mínimo 1): o texto
+renderizado **não é medido**, então letras largas podem passar um pouco, e sequências combinadas (acentos soltos, emojis com ZWJ)
+podem ser cortadas no meio. O rótulo completo fica em `label` e no resumo; o domínio não é tocado.
+
+**Visibilidade.** Com `viewport`, `visible` diz se o círculo (ou a caixa que envolve os pontos do traço e da seta) cruza a área de
+desenho; sem ele, tudo é visível. É informação (resumo, futura poda): o renderizador desenha tudo e o SVG recorta.
+
+**Resumo acessível** (`summary`, português), montado dos **dados**: orientação, contagens com singular e plural, vértices isolados
+pelo **rótulo** (nomeia até 5), "Todas as arestas têm peso" / "N arestas têm peso", "Parte do grafo está fora da área visível" e
+"Nem todos os elementos puderam ser desenhados". Exemplo: *"Grafo orientado com 4 vértices e 4 arestas. O vértice D está isolado.
+3 arestas têm peso."* Não é a acessibilidade detalhada (incremento 3.12).
+
+**Câmera inicial** (`fitCameraToGraph(graph, layout, viewport, { margin?, limits? })`). Enquadra os **limites do conteúdo**
+(`graphContentBounds`): os **círculos** (centro ± raio visual, não só os centros do `boundsOf`) e os extremos e o **ápice**
+(`labelAnchor`) de cada aresta, com margem de **24 dp**, via `fitToBounds`. Só devolve câmera se a área tem dimensões válidas
+(finitas, > 0 e maiores que 2 × margem) e o layout é do grafo; senão `undefined` (a tela ainda não mediu o canvas). Se a escala
+mínima (0,25) impede o enquadramento (grafo enorme), a escala é respeitada, o conteúdo **excede** a área e o resumo avisa. A
+câmera é **estática** e **derivada** (memoizada no tamanho medido), não um estado: nada recalcula a cada quadro.
+
+**Renderizador** (`SvgGraphRenderer`, `react-native-svg`): ordem de baixo para cima: traços das arestas (`Line`/`Path`), pontas
+de seta (`Polygon`), caixas e textos dos pesos (`Rect`/`Text`), círculos (`Circle`) e rótulos (`Text`), de modo que nenhum traço
+atravessa um círculo. Cores **só dos tokens do tema** (sem paleta própria): vértice `primaryMuted` com contorno `primary`, rótulo
+e peso `text`, traço e seta `textSecondary`, fundo do canvas e da caixa do peso `surface`, borda `border`. **Direção aparece na
+seta, peso no texto e isolado pela ausência de arestas: nada depende só de cor.** Não altera o grafo, não despacha ação, não guarda
+estado nem trata gesto. Acessibilidade: o conjunto é **uma imagem** com o resumo como descrição; os elementos internos ficam
+escondidos dos leitores de tela. `graph-renderer.ts` só declara o contrato de props (`scene`, `width`, `height`), sem hierarquia
+genérica nem Skia (que **não** foi instalado).
+
+**Exemplo** (`example-graph.ts`): orientado, A, B, C e D (isolado); A → B (sem peso), B → A (peso 0, arco oposto), B → C (−2),
+C → A (5), montado **só com as operações do domínio** e com cada `Result` conferido (o primeiro erro volta no `Result`, nada fica
+pela metade). O layout vem de `circularLayout`.
+
+**Tela e store.** `EditorStoreProvider` (no escopo da tela Laboratório) cria a store **uma vez por montagem** (`useState` com
+inicializador preguiçoso), sem singleton; `useEditorStore(selector)` usa `useStore` do Zustand e re-renderiza só quando a fatia
+muda. "Carregar exemplo" chama o `reset` do 3.4, que **carrega o grafo e o layout novos, zera histórico, seleção e erro, define o
+modo `select` e não preserva posições de outro grafo**. Se a aba for desmontada a sessão acaba (nada é persistido). O canvas é medido
+por `onLayout` (largura arredondada; altura = 0,9 × largura, entre 240 e 420 dp), então repetir a mesma medida não recalcula nada.
+
+**Complexidade** (V vértices, E arestas): `buildGraphScene` e `fitCameraToGraph` Θ(V + E) em tempo e espaço (índices temporários
+de arcos, de pesos e de isolados; nenhuma busca O(E) por aresta); a conversão de coordenadas é O(1) por ponto; o SVG tem
+Θ(V + E) elementos (um círculo e um texto por vértice; um traço por aresta, mais seta e peso quando há). Depois de uma alteração a
+cena é **refeita inteira**, Θ(V + E), sem atualização incremental (ainda não há gestos, então não é recalculada a cada quadro).
+Carregar o exemplo é Θ(1) (tamanho fixo) mais o `reset` (Θ(V) para reconciliar o layout). Sem virtualização, índice espacial nem Skia.
+
+**Limitações conhecidas.** Texto não medido (rótulos e caixas dos pesos são estimativas); centro vertical do texto aproximado (linha
+de base a 0,35 do corpo); peso e rótulo ancorados, mas não selecionáveis; a curva pode roçar círculos muito próximos (3.3); com
+muitos vértices a escala mínima deixa o conteúdo fora da área; sem seleção, sem estados (origem da conexão, prévia, rastros de
+algoritmos), que entram com os incrementos seguintes.
+
+**Validação no Android (emulador Pixel_6, 1080 × 2400 a 420 dpi, ≈ 411 dp de largura, Expo Go, SDK 58).** Conferido por captura
+de tela, nos temas escuro e claro: (1) o Laboratório abre sem erro; (2) "Carregar exemplo" funciona; (3) os quatro vértices
+aparecem; (4) o isolado D é visível; (5) as setas apontam para o destino certo (A → B em B, B → A em A, B → C em C, C → A em A); (6)
+os arcos opostos são duas curvas distintas; (7) o peso `0` aparece; (8) a aresta sem peso não mostra número; (9) o conteúdo fica
+dentro do quadro; (10) a navegação entre abas funciona e o grafo carregado continua ao voltar ao Laboratório; (11) nenhum elemento
+importante some em um dos temas, e o desenho troca de tema ao vivo. **Não verificado:** TalkBack e qualquer leitor de tela, iOS,
+aparelho físico, outras larguras (cobertas só por Jest: 320, 360, 411 e 600 dp), rotação, escala de fonte do sistema, desempenho
+com muitos vértices e toque. Os testes Jest **não** substituem essa verificação.
 
 ### Procedimento de teste em Android
 
@@ -1426,6 +1500,28 @@ descartada: o repositório não tem nenhum editor nem tela falsa.
   que altera regra ou que devolve a transição errada) 83 foram detectadas (a `selectCanUndo` só depois de reforçar o teste, que
   nunca a via falsa). A que sobrou é **equivalente**: refazer sem o piso dos contadores, porque o ramo `future` já carrega o
   piso (a guarda fica por simetria e custa O(1)).
+- **Cena, renderizador e tela do 3.5** (124 testes novos). `core/scene.test.ts` (projeto `editor-core`, 54): valores **calculados
+  à mão** (câmera `{10, 20, 2}`: centro, raio de 40 dp, traço, seta e âncora do peso), grafo vazio, vértice isolado, orientado e não
+  orientado, **arcos opostos** (curvas distintas, setas nos destinos certos), pesos ausente, `0`, negativo e decimal, ids e rótulos
+  repetidos preservados, vértice sem posição, câmera inválida e layout de outro grafo, truncamento por pontos de código (emojis
+  intactos), visibilidade, resumo acessível (singular, plural, isolados, pesos; 500 grafos aleatórios conferem contagens e
+  orientação), enquadramento (círculos e ápices, margem, escala 4 e 0,25, área não medida), consistência com a geometria e o
+  hit-testing (tocar no centro de cada vértice da cena o acerta; a escala vale uma vez), determinismo e imutabilidade.
+  `svg-graph-renderer.test.tsx` (projeto `app`, 19): quantidade de círculos, rótulos, traços (curva `Q` × reta), setas (só nas
+  orientadas) e pesos (o texto `0` presente, a aresta sem peso sem texto nem caixa), atualização quando a cena muda, tema claro e
+  escuro com os tokens do tema, imagem com o resumo, elementos escondidos dos leitores de tela, `viewBox` igual à área, corpo da
+  fonte da cena e nenhum tratador de toque. `example-graph*.test.ts` (9), `editor-store-provider.test.tsx` (6: uma store por
+  montagem, sem singleton, assinatura por fatia), `canvas-size.test.ts` (13), `lab-screen.test.tsx` (22: estado vazio, carregar o
+  exemplo, larguras de 320 a 600 dp, repetir a medida sem recalcular a cena, **reset** que limpa histórico, seleção, erro e posições
+  do grafo antigo e define o modo `select`, store estável) e `lab-screen-error.test.tsx` (1: erro do domínio ao montar o exemplo). Em
+  **mutação dirigida** (70 mutações: 28 de `scene.ts`, 15 de `svg-graph-renderer.tsx`, 7 de `example-graph.ts`, 18 do provider, da
+  tela e de `canvas-size.ts` e 2 do `reset` da store: peso zero omitido, peso ausente como 1, direção e origem/destino invertidos,
+  curvas opostas coincidentes, câmera sem translação, **escala aplicada duas vezes**, vértice isolado omitido, rótulo trocado pelo
+  id, limites sem o raio, resumo sem avisos, `reset` que preserva o histórico, store recriada ou global) 67 foram detectadas (2 só
+  depois de reforçar os testes: o `viewBox` e o corpo da fonte). As **3 equivalentes**: entregar ao `reset` o layout do grafo antigo
+  (o núcleo descarta o layout de outro grafo e reconcilia), não arredondar a largura medida (`canvasSize` arredonda de novo, só
+  haveria uma renderização a mais) e `<= 0` × `< 0` em `canvasSize` (o teste seguinte da função já recusa a largura 0).
+  Nota: o SVG fica escondido dos leitores de tela, então as consultas do RNTL pedem `includeHiddenElements`.
 - **Ambiente de testes das bibliotecas do editor** (`graph-editor/native-stack.test.tsx`, projeto `app`): SVG
   (`Svg`, `G`, `Line`, `Circle`, `Text`) renderiza com suas propriedades; toque e arrasto simulados por
   `createGestureController` atualizam a tela; um componente com valor compartilhado e estilo animado monta. Não testa o

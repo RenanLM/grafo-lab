@@ -8,7 +8,7 @@ describe('rotas do aplicativo', () => {
   it.each([
     ['/', 'Abrir o Laboratório'],
     ['/aprender', 'Unidade 1 · 10 h'],
-    ['/laboratorio', 'Seu laboratório está vazio'],
+    ['/laboratorio', 'Nenhum grafo carregado'],
     ['/desafios', 'Ainda não há desafios'],
   ])('abre %s sem erro', async (url, textoEsperado) => {
     await renderRouter(APP_DIR, { initialUrl: url });
@@ -21,7 +21,7 @@ describe('rotas do aplicativo', () => {
     const user = userEvent.setup();
 
     await user.press(screen.getByRole('link', { name: /Abrir o Laboratório/ }));
-    expect(await screen.findByText('Seu laboratório está vazio')).toBeOnTheScreen();
+    expect(await screen.findByText('Nenhum grafo carregado')).toBeOnTheScreen();
     expect(getPathname()).toBe('/laboratorio');
   });
 

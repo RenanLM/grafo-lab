@@ -130,10 +130,11 @@ estão em `ARCHITECTURE.md`):
 A etapa 3.4B registrou a tabela comparativa e as medições em `ARCHITECTURE.md`; limites de tamanho para a interface
 só depois de medir em Hermes e em Android com poucos recursos (tarefa 4.6).
 
-## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 a 3.4 concluídos; os demais aguardam autorização)
+## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 a 3.5 concluídos; os demais aguardam autorização)
 
 Só os incrementos 3.0 (infraestrutura), 3.1 (câmera pura), 3.2 (`GraphLayout` puro), 3.3 (geometria das arestas e
-hit-testing puros) e 3.4 (núcleo de edição, histórico e store Zustand) foram feitos; **não há editor visual**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
+hit-testing puros), 3.4 (núcleo de edição, histórico e store Zustand) e 3.5 (renderizador SVG somente leitura e exemplo no
+Laboratório) foram feitos; **ainda não é possível editar o grafo no canvas**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
 quando houver regra nova e uma mensagem de commit. Tamanhos: **S** (um módulo puro e seus testes) e **M** (lógica +
 interface). Ordem como no prompt mestre: renderizar, criar, conectar, selecionar; **depois** arrastar, deslocar e
 ampliar, em incrementos separados.
@@ -331,12 +332,33 @@ ampliar, em incrementos separados.
   - *Commits sugeridos:* `feat(editor): add editor core, undo history and error messages` e
     `feat(editor): add zustand editor store`
 
-- ⬜ **3.5 Renderizador SVG somente leitura** (M). `GraphRenderer` e `SvgGraphRenderer`: vértices (círculo + rótulo),
-  arestas, setas, pesos (**ausente ≠ 0**), cores só por tokens (claro/escuro); botão "Carregar exemplo" no Laboratório
-  (monta um grafo real pela store, com `circularLayout`); resumo acessível do canvas. Decisão 5.
-  - *Aceite:* o exemplo aparece em tema claro e escuro; peso 0 aparece e aresta sem peso não mostra número; arcos
-    opostos não se sobrepõem; nada depende só de cor (seta, espessura e forma).
-  - *Testes:* RNTL contando elementos por grafo, geometria pura, contraste dos tokens usados; conferência manual no emulador.
+- ✅ **3.5 Renderizador SVG somente leitura** (M). Três partes, cada uma fechada com `npm run check`. **Somente leitura:** sem
+  gestos, seleção por toque, conexão manual, arrasto, zoom, pan nem SQLite; nenhum controle de edição foi criado.
+  - *A. Cena pura* (`core/scene.ts`): `buildGraphScene(graph, layout, camera, options?) → GraphScene | undefined` devolve vértices
+    (id, rótulo completo e exibido, centro, raio, `isolated`, `visible`), arestas (id, origem e destino, traço reta ou curva, seta, peso
+    com âncora e caixa) e um **resumo acessível em português montado dos dados**, tudo em **dp de tela, com `worldToScreen` aplicado
+    uma vez** (sem `viewBox` escalado nem `transform`). Reaproveita `edgeGeometries` (a geometria não é refeita no SVG).
+    `fitCameraToGraph` enquadra os **círculos e os ápices das curvas**, com margem de 24 dp, só com área de desenho válida.
+  - *B. Renderizador* (`graph-renderer.ts`, `svg-graph-renderer.tsx`; nomes em kebab-case, como o `CLAUDE.md` manda): só percorre
+    a cena. Ordem: traços, setas, pesos, círculos, rótulos. **Só tokens do tema** (claro e escuro); direção na seta, peso no texto
+    (peso `0` aparece, aresta sem peso não mostra número); a imagem leva o resumo e os elementos internos ficam escondidos dos
+    leitores de tela. Rótulos longos truncados por pontos de código (estimativa; o texto **não é medido**).
+  - *C. Integração:* `EditorStoreProvider` e `useEditorStore(selector)` (uma store por montagem, sem singleton); `example-graph.ts`
+    (orientado: A → B sem peso, B → A peso 0, B → C −2, C → A 5, D isolado; **cada `Result` conferido**, só operações do domínio);
+    tela Laboratório com estado vazio honesto, botão "Carregar exemplo" (usa o `reset` do 3.4: carrega grafo e layout novos, zera
+    histórico, seleção e erro, modo `select`, sem posições de outro grafo), canvas medido por `onLayout` e câmera derivada. Novo
+    `components/button.tsx`. A tela e `routes.test.tsx` trocam o texto antigo "Seu laboratório está vazio" por "Nenhum grafo carregado".
+  - *Complexidade:* cena e enquadramento Θ(V + E); SVG com Θ(V + E) elementos; a cena é **refeita inteira** depois de uma alteração
+    (sem atualização incremental) e não a cada quadro; carregar o exemplo Θ(1) mais o `reset`. Sem virtualização nem Skia.
+  - *Android (emulador Pixel_6, Expo Go, temas escuro e claro; conferido por captura de tela):* o Laboratório abre; o botão funciona;
+    os quatro vértices aparecem e D é visível; as setas apontam para o destino certo; os arcos opostos são curvas distintas; o peso `0`
+    aparece e a aresta sem peso não mostra número; o conteúdo cabe no quadro; a navegação entre abas funciona e o grafo permanece; nenhum
+    elemento importante some em nenhum tema. **Não verificado:** TalkBack, iOS, aparelho físico, outras larguras (só Jest), rotação,
+    escala de fonte e desempenho com muitos vértices.
+  - *Limitações:* texto não medido (estimativas de largura e centro vertical), peso e rótulo não selecionáveis, escala mínima deixa grafos
+    enormes fora da área, câmera estática, sem estados de seleção ou de algoritmo.
+  - *Testes:* 124 novos; total do projeto **1903**. Mutação dirigida: 70 mutações, 67 detectadas e 3 **equivalentes**. Detalhes em
+    `ARCHITECTURE.md`, "Cena e renderização SVG".
   - *Commit:* `feat(editor): render graphs with react-native-svg`
 
 - ⬜ **3.6 Modo Adicionar vértice e barra de modos** (M). Barra contextual (Selecionar / Adicionar vértice / Conectar;

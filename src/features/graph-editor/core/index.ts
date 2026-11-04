@@ -3,7 +3,8 @@
 // (docs/ROADMAP.md, Fase 3):
 //   3.1 câmera (coordenadas de mundo ↔ tela) — pronta · 3.2 GraphLayout e posicionamento — pronto · 3.3 geometria das
 //   arestas (3.3A) e hit-testing (3.3B) — prontos · 3.4 comandos do editor, histórico e mensagens — pronto (a store Zustand
-//   fica em `graph-editor/editor-store.ts`, fora do núcleo).
+//   fica em `graph-editor/editor-store.ts`, fora do núcleo) · 3.5 cena do grafo e enquadramento inicial — pronto (o
+//   renderizador SVG fica em `graph-editor/`).
 // Importa apenas o domínio (`@/domain/graph`) e a si mesmo. O ESLint barra o resto e `boundary.test.ts` confere também
 // os imports relativos que saiam desta pasta. A interface (`src/features/graph-editor/*.tsx`) e a futura store
 // Zustand dependem deste núcleo, nunca o contrário.
@@ -59,6 +60,21 @@ export {
   type LineSegment,
   type QuadraticCurve,
 } from './geometry';
+
+// Cena: a descrição visual do grafo em dp de tela, pronta para um renderizador, e o enquadramento inicial da câmera
+export {
+  buildGraphScene,
+  DEFAULT_LABEL_FONT_SIZE,
+  DEFAULT_SCENE_MARGIN,
+  fitCameraToGraph,
+  graphContentBounds,
+  type FitOptions,
+  type GraphScene,
+  type SceneEdge,
+  type SceneOptions,
+  type SceneVertex,
+  type SceneWeight,
+} from './scene';
 
 // Edição: estado, ações, histórico de desfazer/refazer, política de rótulos e de contadores (a store Zustand fica fora do núcleo)
 export {
