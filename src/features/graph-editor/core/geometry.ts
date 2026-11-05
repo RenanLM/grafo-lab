@@ -274,6 +274,25 @@ function geometryOf(
 }
 
 /**
+ * Geometria de uma aresta entre as posições `from` (origem) e `to` (destino) que o chamador já conhece, sem consultar o grafo nem o layout:
+ * é a MESMA conta de `edgeGeometry` e `edgeGeometries` (`buildGeometry`), exposta para quem sabe as posições e se existe o arco oposto
+ * (`curved`). A prévia do arrasto (3.9) move UM vértice e refaz só as arestas dele, sem montar o índice de arcos de todas as arestas; assim
+ * não existe uma segunda fórmula para os traços, as setas e as âncoras. `undefined` nas mesmas condições (posição não finita, círculos
+ * que se tocam, resultado não finito). O(1).
+ */
+export function edgeGeometryBetween(
+  edge: Edge,
+  from: Point,
+  to: Point,
+  directed: boolean,
+  curved: boolean,
+  options: GeometryOptions = {},
+): EdgeGeometry | undefined {
+  if (!isValidPoint(from) || !isValidPoint(to)) return undefined;
+  return buildGeometry(edge, from, to, directed, curved, resolveGeometryOptions(options));
+}
+
+/**
  * Geometria da aresta `edgeId`, ou `undefined` se a aresta não existe, se o layout é de outro grafo, se falta posição a uma das
  * pontas, se os círculos se tocam ou se algo não é finito. Θ(E): acha a aresta e, em grafo orientado, procura o arco oposto
  * (para várias arestas use `edgeGeometries`, que monta um índice e custa Θ(V + E) no total).

@@ -15,6 +15,7 @@ import {
   DEFAULT_VERTEX_RADIUS,
   edgeGeometries,
   type Arrowhead,
+  type EdgeGeometry,
   type EdgePath,
   type GeometryOptions,
 } from './geometry';
@@ -199,6 +200,53 @@ function circleIntersects(center: Point, radius: number, viewport: Viewport): bo
   );
 }
 
+/**
+ * A aresta da cena a partir da geometria dela (em mundo): traço, seta e âncora do peso convertidos para dp de tela com a câmera (cada ponto
+ * passa UMA vez por `worldToScreen`), o texto e a caixa estimada do peso (`weight` indefinido: sem peso; `0` TEM peso) e a visibilidade.
+ * É o passo que `buildGraphScene` repete por aresta, exposto para que a prévia do arrasto (3.9) monte as arestas de UM vértice com a mesma
+ * conta, sem refazer a cena inteira. `undefined` se algum ponto convertido não é finito. O(1).
+ */
+export function sceneEdgeFrom(
+  geometry: EdgeGeometry,
+  weight: number | undefined,
+  camera: Camera,
+  fontSize: number,
+  viewport?: Viewport,
+): SceneEdge | undefined {
+  const path = pathToScreen(camera, geometry.path);
+  const arrow = geometry.arrow === undefined ? undefined : arrowToScreen(camera, geometry.arrow);
+  const anchor = worldToScreen(camera, geometry.labelAnchor);
+  const points = [...pathPoints(path), ...(arrow === undefined ? [] : [arrow.tip, arrow.left, arrow.right])];
+  if (!points.every(isValidPoint) || !isValidPoint(anchor)) return undefined;
+
+  const text = weight === undefined ? undefined : formatWeight(weight);
+  return {
+    id: geometry.edgeId,
+    sourceId: geometry.sourceId,
+    targetId: geometry.targetId,
+    path,
+    ...(arrow !== undefined && { arrow }),
+    ...(text !== undefined && {
+      weight: {
+        text,
+        anchor,
+        width: Array.from(text).length * fontSize * GLYPH_WIDTH_RATIO + 2 * WEIGHT_PADDING,
+        height: fontSize + 2 * WEIGHT_PADDING,
+      },
+    }),
+    visible: viewport === undefined || boxIntersects(points, viewport),
+  };
+}
+
+/**
+ * O mesmo vértice da cena com o centro em `center` (dp de tela): só o centro e a visibilidade mudam; o rótulo, o raio e o `isolated` são os
+ * de `base`. Usado pela prévia do arrasto (3.9). `undefined` se o centro não é finito. O(1).
+ */
+export function sceneVertexAt(base: SceneVertex, center: Point, viewport?: Viewport): SceneVertex | undefined {
+  if (!isValidPoint(center)) return undefined;
+  return { ...base, center, visible: viewport === undefined || circleIntersects(center, base.radius, viewport) };
+}
+
 const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
 
 /** "A", "A e B", "A, B e C". */
@@ -285,30 +333,8 @@ export function buildGraphScene(
 
   const edges: SceneEdge[] = [];
   for (const geometry of edgeGeometries(graph, layout, options)) {
-    const path = pathToScreen(camera, geometry.path);
-    const arrow = geometry.arrow === undefined ? undefined : arrowToScreen(camera, geometry.arrow);
-    const anchor = worldToScreen(camera, geometry.labelAnchor);
-    const points = [...pathPoints(path), ...(arrow === undefined ? [] : [arrow.tip, arrow.left, arrow.right])];
-    if (!points.every(isValidPoint) || !isValidPoint(anchor)) continue;
-
-    const weight = weights.get(geometry.edgeId);
-    const text = weight === undefined ? undefined : formatWeight(weight);
-    edges.push({
-      id: geometry.edgeId,
-      sourceId: geometry.sourceId,
-      targetId: geometry.targetId,
-      path,
-      ...(arrow !== undefined && { arrow }),
-      ...(text !== undefined && {
-        weight: {
-          text,
-          anchor,
-          width: Array.from(text).length * fontSize * GLYPH_WIDTH_RATIO + 2 * WEIGHT_PADDING,
-          height: fontSize + 2 * WEIGHT_PADDING,
-        },
-      }),
-      visible: viewport === undefined || boxIntersects(points, viewport),
-    });
+    const edge = sceneEdgeFrom(geometry, weights.get(geometry.edgeId), camera, fontSize, viewport);
+    if (edge !== undefined) edges.push(edge);
   }
 
   return {

@@ -6,7 +6,8 @@
 //   fica em `graph-editor/editor-store.ts`, fora do núcleo) · 3.5 cena do grafo e enquadramento inicial — pronto (o
 //   renderizador SVG fica em `graph-editor/`) · 3.6 tradução do toque em ação (`tap.ts`) — pronto · 3.7 máquina de estados do
 //   modo Conectar (`connect.ts`, `connect-status.ts`) — pronto · 3.8 seleção por toque (`selection.ts`), conversão do texto de peso
-//   (`weight-input.ts`), propriedades e exclusão (`properties.ts`, `deletion.ts`) — pronto.
+//   (`weight-input.ts`), propriedades e exclusão (`properties.ts`, `deletion.ts`) — pronto · 3.9 arrasto de vértice (`drag.ts`) e a
+//   prévia do arrasto (`drag-preview.ts`) — pronto.
 // Importa apenas o domínio (`@/domain/graph`) e a si mesmo. O ESLint barra o resto e `boundary.test.ts` confere também
 // os imports relativos que saiam desta pasta. A interface (`src/features/graph-editor/*.tsx`) e a futura store
 // Zustand dependem deste núcleo, nunca o contrário.
@@ -55,6 +56,7 @@ export {
   DEFAULT_VERTEX_RADIUS,
   edgeGeometries,
   edgeGeometry,
+  edgeGeometryBetween,
   type Arrowhead,
   type EdgeGeometry,
   type EdgePath,
@@ -105,6 +107,31 @@ export {
   type WeightInputResult,
 } from './weight-input';
 
+// Arrasto de vértice (3.9), parte pura: a sessão, o grab offset, a posição da prévia e da conclusão, e a ação `move-vertex` ao soltar
+export {
+  DRAG_START_DISTANCE_DP,
+  dragActivated,
+  dragCommitAction,
+  dragFinalPosition,
+  dragPreviewPosition,
+  finishDrag,
+  isDragSessionValid,
+  startDrag,
+  type DragEditorState,
+  type DragEnd,
+  type DragOutcome,
+  type DragSession,
+  type MoveVertexAction,
+} from './drag';
+
+// Prévia do arrasto (3.9): o desenho provisório do vértice arrastado e das arestas dele, com as mesmas fórmulas da cena definitiva
+export {
+  buildDragPreview,
+  planDragPreview,
+  type DragPreview,
+  type DragPreviewPlan,
+} from './drag-preview';
+
 // Cena: a descrição visual do grafo em dp de tela, pronta para um renderizador, e o enquadramento inicial da câmera
 export {
   buildGraphScene,
@@ -112,6 +139,8 @@ export {
   DEFAULT_SCENE_MARGIN,
   fitCameraToGraph,
   graphContentBounds,
+  sceneEdgeFrom,
+  sceneVertexAt,
   type FitOptions,
   type GraphScene,
   type SceneEdge,
