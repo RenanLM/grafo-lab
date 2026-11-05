@@ -5,7 +5,15 @@ import { Text } from '@/components/text';
 import { ToolButton } from '@/components/tool-button';
 import { spacing, typography } from '@/theme';
 
-import { connectStatusMessage, type EditorMode } from './core';
+import {
+  connectStatusMessage,
+  describeProperties,
+  propertiesGenitive,
+  propertiesNoun,
+  selectionStatusMessage,
+  type EditorMode,
+  type EditorSelection,
+} from './core';
 import {
   selectCanRedo,
   selectCanUndo,
@@ -14,11 +22,12 @@ import {
   selectError,
   selectGraph,
   selectMode,
+  selectSelection,
   selectVertexCount,
 } from './editor-store';
 import { useEditorStore } from './editor-store-provider';
 
-// Controles do editor (Fase 3, incrementos 3.6 e 3.7): a barra de modos, a linha de estado do modo Conectar e a de desfazer e
+// Controles do editor (Fase 3, incrementos 3.6 a 3.8): a barra de modos, as linhas de estado dos modos Conectar e Selecionar e a de desfazer e
 // refazer. SÓ despacham ações do núcleo (`set-mode`, `undo`, `redo`) ou chamam a store (`cancelConnection`): nenhuma regra, nenhum
 // histórico próprio. Trocar de modo e desfazer/refazer não mexem na câmera (que nem está na store). Assinam só a fatia de que precisam.
 //
@@ -43,7 +52,12 @@ type ModeItem = {
 };
 
 const MODES: readonly ModeItem[] = [
-  { mode: 'select', label: 'Selecionar', minVertices: 0, hint: 'Por enquanto, tocar no quadro não seleciona nada' },
+  {
+    mode: 'select',
+    label: 'Selecionar',
+    minVertices: 0,
+    hint: 'Toque em um vértice ou em uma aresta para selecioná-lo e em um espaço vazio para limpar a seleção',
+  },
   { mode: 'add-vertex', label: 'Adicionar vértice', minVertices: 0, hint: 'Toque no espaço vazio do quadro para criar um vértice' },
   {
     mode: 'connect',
@@ -108,6 +122,48 @@ export function ConnectStatus() {
           variant="secondary"
           onPress={cancelConnection}
         />
+      )}
+    </View>
+  );
+}
+
+/**
+ * Estado do modo Selecionar: a frase da seleção ("Vértice A selecionado.", "Aresta entre A e B selecionada. Peso 2,5.") e, havendo seleção, os botões Editar e
+ * Excluir, que abrem a folha de propriedades (o pedido é do Laboratório, que é dono da folha). Não aparece fora do modo Selecionar. Fica ABAIXO do canvas e com a
+ * altura mínima do botão, como a linha do Conectar: o que aparece ou some ali não desloca o canvas.
+ */
+export function SelectionStatus({ onEdit, onDelete }: { onEdit: (selection: EditorSelection) => void; onDelete: (selection: EditorSelection) => void }) {
+  const mode = useEditorStore(selectMode);
+  const graph = useEditorStore(selectGraph);
+  const selection = useEditorStore(selectSelection);
+  if (mode !== 'select') return null;
+  const target = describeProperties(graph, selection);
+  return (
+    <View testID="selection-status-row" style={styles.statusRow}>
+      <Text testID="selection-status" accessibilityLiveRegion="polite" style={styles.statusText}>
+        {selectionStatusMessage({ mode, graph, selection })}
+      </Text>
+      {target === undefined ? null : (
+        <>
+          <Button
+            label="Editar"
+            variant="secondary"
+            accessibilityLabel={`Editar propriedades ${propertiesGenitive(target)}`}
+            accessibilityHint="Abre a folha de propriedades"
+            onPress={() => {
+              onEdit(selection);
+            }}
+          />
+          <Button
+            label="Excluir"
+            variant="secondary"
+            accessibilityLabel={`Excluir ${propertiesNoun(target)}`}
+            accessibilityHint="Pede uma confirmação antes de excluir"
+            onPress={() => {
+              onDelete(selection);
+            }}
+          />
+        </>
       )}
     </View>
   );

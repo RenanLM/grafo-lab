@@ -5,11 +5,13 @@ import { addEdge, addVertex, createGraph, type Graph, type Result } from '@/doma
 import { colors, type ColorToken } from '@/theme';
 
 import {
+  DEFAULT_EDGE_TOLERANCE,
   buildGraphScene,
   circularLayout,
   emptyLayout,
   fitCameraToGraph,
   placeVertex,
+  type EditorSelection,
   type GraphLayout,
   type GraphScene,
 } from './core';
@@ -364,6 +366,123 @@ describe('SvgGraphRenderer: destaque do vértice de origem', () => {
     const scene = exampleScene();
     const antes = JSON.stringify(scene);
     await drawWith(scene, 'v1');
+
+    expect(JSON.stringify(scene)).toBe(antes);
+  });
+});
+
+// Destaque da seleção (3.8): só desenho. O que se confere é que o anel (vértice) e o halo e o traço grosso (aresta) aparecem no elemento certo,
+// que a forma difere do destaque da origem do Conectar (anel sólido x tracejado), que o halo é mais estreito que a tolerância de toque, que a
+// geometria e a cena não mudam e que o destaque não depende só de cor.
+describe('SvgGraphRenderer: destaque da seleção', () => {
+  const drawSelected = (scene: GraphScene, selection: EditorSelection, highlightedVertexId?: string) =>
+    render(
+      <SvgGraphRenderer
+        scene={scene}
+        width={VIEWPORT.width}
+        height={VIEWPORT.height}
+        selection={selection}
+        highlightedVertexId={highlightedVertexId}
+      />,
+    );
+  const vertexSel = (vertexId: string): EditorSelection => ({ type: 'vertex', vertexId });
+  const edgeSel = (edgeId: string): EditorSelection => ({ type: 'edge', edgeId });
+
+  it('sem seleção (ou com `none`) não há anel nem halo, e o contorno e os traços são os normais', async () => {
+    await drawSelected(exampleScene(), { type: 'none' });
+
+    expect(count(/^vertex-selection-ring-/)).toBe(0);
+    expect(count(/^edge-selection-/)).toBe(0);
+    for (const id of ['v1', 'v2', 'v3', 'v4']) expect(byId(`vertex-circle-${id}`).props.strokeWidth).toBe(2);
+    for (const edge of exampleScene().edges) expect(byId(`edge-stroke-${edge.id}`).props.strokeWidth).toBe(2);
+  });
+
+  it('vértice selecionado: anel SÓLIDO concêntrico e maior, contorno de 4 dp só nele', async () => {
+    const scene = exampleScene();
+    const vertex = scene.vertices.find((candidate) => candidate.id === 'v2')!;
+    await drawSelected(scene, vertexSel('v2'));
+    const ring = byId('vertex-selection-ring-v2').props;
+
+    expect(count(/^vertex-selection-ring-/)).toBe(1);
+    expect([ring.cx, ring.cy]).toStrictEqual([vertex.center.x, vertex.center.y]);
+    expect(ring.r).toBeGreaterThan(vertex.radius);
+    expect(ring.fill).toBeNull(); // só contorno
+    expect(ring.strokeDasharray).toBeFalsy(); // sólido: a origem do Conectar é tracejada
+    expect(byId('vertex-circle-v2').props.strokeWidth).toBe(4);
+    for (const id of ['v1', 'v3', 'v4']) expect(byId(`vertex-circle-${id}`).props.strokeWidth).toBe(2);
+    expect(byId('vertex-circle-v2').props).toMatchObject({ cx: vertex.center.x, cy: vertex.center.y, r: vertex.radius }); // a geometria não muda
+  });
+
+  it('a seleção (anel sólido) e a origem do Conectar (anel tracejado) se distinguem pela FORMA, não só pela cor', async () => {
+    await drawSelected(exampleScene(), vertexSel('v1'), 'v2');
+
+    expect(byId('vertex-selection-ring-v1').props.strokeDasharray).toBeFalsy();
+    expect(byId('vertex-source-ring-v2').props.strokeDasharray).toBeTruthy();
+    expect(byId('vertex-selection-ring-v1').props.stroke).not.toStrictEqual(byId('vertex-source-ring-v2').props.stroke);
+  });
+
+  it('aresta RETA selecionada: traço de 4 dp no token primary, halo translúcido por baixo e a seta com contorno; as outras ficam como estavam', async () => {
+    const scene = exampleScene();
+    const straight = scene.edges.find((edge) => edge.path.kind === 'line' && edge.arrow !== undefined)!;
+    await drawSelected(scene, edgeSel(straight.id));
+    const stroke = byId(`edge-stroke-${straight.id}`).props;
+    const halo = byId(`edge-selection-${straight.id}`).props;
+    const arrow = byId(`edge-arrow-${straight.id}`).props;
+
+    expect(stroke.strokeWidth).toBe(4);
+    expect(stroke.stroke).toStrictEqual(paint(colors.light.primary));
+    expect(halo.strokeWidth).toBe(10);
+    expect(halo.strokeOpacity).toBeLessThan(1);
+    expect(halo.stroke).toStrictEqual(paint(colors.light.primary));
+    expect(arrow.fill).toStrictEqual(paint(colors.light.primary));
+    expect(arrow.strokeWidth).toBe(3); // a ponta da seta também destaca
+    for (const edge of scene.edges.filter((candidate) => candidate.id !== straight.id)) {
+      expect(byId(`edge-stroke-${edge.id}`).props.strokeWidth).toBe(2);
+      expect(byId(`edge-stroke-${edge.id}`).props.stroke).toStrictEqual(paint(colors.light.textSecondary));
+      if (edge.arrow !== undefined) expect(byId(`edge-arrow-${edge.id}`).props.strokeWidth).toBeUndefined();
+    }
+  });
+
+  it('aresta CURVA selecionada (arco oposto): o halo acompanha a curva (mesmo caminho do traço)', async () => {
+    const scene = exampleScene();
+    const curved = scene.edges.find((edge) => edge.path.kind === 'quadratic')!;
+    await drawSelected(scene, edgeSel(curved.id));
+
+    expect(byId(`edge-selection-${curved.id}`).props.d).toBe(byId(`edge-stroke-${curved.id}`).props.d);
+    expect(byId(`edge-stroke-${curved.id}`).props.strokeWidth).toBe(4);
+  });
+
+  it('o halo (10 dp) é mais estreito que a área de toque da aresta: o que se vê não promete mais do que o hit-testing aceita', async () => {
+    await drawSelected(exampleScene(), edgeSel('e3'));
+
+    expect(byId('edge-selection-e3').props.strokeWidth / 2).toBeLessThan(DEFAULT_EDGE_TOLERANCE);
+  });
+
+  it('o halo é desenhado ANTES dos traços (fica por baixo) e os círculos continuam por cima das arestas', async () => {
+    await drawSelected(exampleScene(), edgeSel('e3'));
+    const ordem = screen.queryAllByTestId(/^(edge-selection-e3|edge-stroke-e3|vertex-circle-v1)$/, HIDDEN).map((node) => String(node.props.testID));
+
+    expect(ordem).toStrictEqual(['edge-selection-e3', 'edge-stroke-e3', 'vertex-circle-v1']);
+  });
+
+  it('um id que não está na cena não destaca nada (sem erro)', async () => {
+    await drawSelected(exampleScene(), vertexSel('v99'));
+    expect(count(/^vertex-selection-ring-/)).toBe(0);
+    await drawSelected(exampleScene(), edgeSel('e99'));
+
+    expect(count(/^edge-selection-/)).toBe(0);
+  });
+
+  it.each(['light', 'dark'] as const)('tema %s: anel do vértice no token text e halo da aresta no token primary', async (scheme) => {
+    setScheme(scheme);
+    await drawSelected(exampleScene(), vertexSel('v1'));
+    expect(byId('vertex-selection-ring-v1').props.stroke).toStrictEqual(paint(colors[scheme].text));
+  });
+
+  it('o destaque não muda a cena', async () => {
+    const scene = exampleScene();
+    const antes = JSON.stringify(scene);
+    await drawSelected(scene, edgeSel('e3'));
 
     expect(JSON.stringify(scene)).toBe(antes);
   });

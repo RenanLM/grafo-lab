@@ -132,16 +132,42 @@ describe('dispatch', () => {
     expect(vertexIds(store)).toStrictEqual(['v1']); // o id não foi consumido pela recusa
   });
 
-  it('seleção e modo', () => {
+  it('seleção e modo: fora do histórico; trocar para outro modo que não seja Selecionar LIMPA a seleção (política da store, 3.8)', () => {
     const store = newStore();
-    dispatch(store, { type: 'add-vertex', position: point(0, 0) }, { type: 'select', selection: { type: 'vertex', vertexId: 'v1' } }, { type: 'set-mode', mode: 'add-vertex' });
-
+    dispatch(store, { type: 'add-vertex', position: point(0, 0) }, { type: 'select', selection: { type: 'vertex', vertexId: 'v1' } });
     expect(selectSelection(store.getState())).toStrictEqual({ type: 'vertex', vertexId: 'v1' });
+
+    dispatch(store, { type: 'set-mode', mode: 'add-vertex' });
     expect(selectMode(store.getState())).toBe('add-vertex');
+    expect(selectSelection(store.getState())).toStrictEqual({ type: 'none' }); // o destaque não fica em outro modo
     expect(editor(store).history.past).toHaveLength(1); // seleção e modo fora do histórico
-    dispatch(store, { type: 'clear-selection' });
+    dispatch(store, { type: 'select', selection: { type: 'vertex', vertexId: 'v1' } }, { type: 'clear-selection' });
 
     expect(selectSelection(store.getState())).toStrictEqual({ type: 'none' });
+  });
+
+  it('a política da seleção: ir para Conectar também limpa; voltar a Selecionar e o mesmo modo não mexem; selecionar por ação direta em outro modo vale', () => {
+    const store = newStore();
+    dispatch(store, { type: 'add-vertex', position: point(0, 0) }, { type: 'select', selection: { type: 'vertex', vertexId: 'v1' } });
+    const antes = editor(store);
+
+    dispatch(store, { type: 'set-mode', mode: 'select' }); // o mesmo modo: sem efeito
+    expect(editor(store)).toBe(antes);
+
+    dispatch(store, { type: 'set-mode', mode: 'connect' });
+    expect(selectSelection(store.getState())).toStrictEqual({ type: 'none' });
+    dispatch(store, { type: 'select', selection: { type: 'vertex', vertexId: 'v1' } }); // a política é da TROCA de modo, não proíbe a ação
+    expect(selectSelection(store.getState())).toStrictEqual({ type: 'vertex', vertexId: 'v1' });
+
+    dispatch(store, { type: 'set-mode', mode: 'select' }); // entrar em Selecionar não limpa nada
+    expect(selectSelection(store.getState())).toStrictEqual({ type: 'vertex', vertexId: 'v1' });
+  });
+
+  it('a troca de modo sem seleção não cria um segundo estado: um único aviso aos assinantes', () => {
+    const store = newStore();
+    dispatch(store, { type: 'add-vertex', position: point(0, 0) });
+
+    expect(notifications(store, () => dispatch(store, { type: 'set-mode', mode: 'add-vertex' }))).toBe(1);
   });
 
   it('desfazer e refazer pela store: A, B, C → desfazer C → novo vértice v4 com o rótulo C; ids não recuam', () => {

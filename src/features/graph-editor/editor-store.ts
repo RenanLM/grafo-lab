@@ -45,6 +45,9 @@ import {
 // - `dispatch` e `reset` mantêm a origem coerente (`reconcileConnection`): trocar de modo, `reset` e a origem deixar de existir
 //   (desfazer, refazer ou qualquer alteração) a limpam. O aviso some em qualquer ação efetiva e no `reset`.
 
+// Seleção (3.8). A seleção é do `EditorState` (por id, fora do histórico) e o `applyAction` de `set-mode` não mexe nela; a política "sair do modo Selecionar
+// limpa a seleção" é do `dispatch` da store (a mesma ideia da origem pendente do Conectar), para o destaque não ficar em outro modo.
+
 export type EditorStoreState = {
   /** O estado de edição inteiro. Substituído por inteiro; nunca alterado no lugar. */
   readonly editor: EditorState;
@@ -82,9 +85,14 @@ export function createEditorStore(options: CreateEditorStateOptions): EditorStor
       const { editor: current, connection } = get();
       const transition = applyAction(current, action);
       if (transition.state !== current) {
+        let next = transition.state;
+        // Trocar para outro modo que não seja Selecionar limpa a seleção: o destaque não fica em outro modo (o núcleo não mexe nela; a política é daqui).
+        if (action.type === 'set-mode' && next.mode !== 'select' && next.selection.type !== 'none') {
+          next = applyAction(next, { type: 'clear-selection' }).state;
+        }
         set({
-          editor: transition.state,
-          connection: reconcileConnection(connection, transition.state),
+          editor: next,
+          connection: reconcileConnection(connection, next),
           connectNotice: undefined,
         });
       }

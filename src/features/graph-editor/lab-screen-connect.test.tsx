@@ -381,14 +381,17 @@ describe('modo Conectar: o resto do editor continua igual', () => {
     expect(edgeIds()).toStrictEqual(['e1']);
   });
 
-  it('no modo Selecionar o toque não faz nada (a seleção por toque é do 3.8)', async () => {
+  it('no modo Selecionar o toque SELECIONA (3.8) e nunca escolhe origem nem cria aresta: um toque, um caminho', async () => {
     const { tapAt, pressMode, editor, store } = await connectScreen();
     await pressMode('Selecionar');
-    const antes = editor();
+    const grafo = editor().graph;
+    const historico = editor().history;
     await tapAt(A);
     await tapAt(B);
 
-    expect(editor()).toBe(antes);
+    expect(editor().selection).toStrictEqual({ type: 'vertex', vertexId: 'v2' });
+    expect(editor().graph).toBe(grafo);
+    expect(editor().history).toBe(historico); // selecionar não entra no histórico
     expect(sourceOf(store)).toBeUndefined();
   });
 

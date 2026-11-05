@@ -19,26 +19,30 @@ import {
   fitCameraToGraph,
   graphErrorMessage,
   tapToEditorAction,
+  tapToSelectionAction,
   type Camera,
   type CreateEditorStateOptions,
   type GraphLayout,
   type Point,
 } from './core';
-import { ConnectStatus, HistoryBar, ModeBar } from './editor-controls';
-import { selectConnectSource, selectGraph, selectLayout, selectMode } from './editor-store';
+import { ConnectStatus, HistoryBar, ModeBar, SelectionStatus } from './editor-controls';
+import { selectConnectSource, selectGraph, selectLayout, selectMode, selectSelection } from './editor-store';
 import { EditorStoreProvider, useEditorStore, useEditorStoreApi } from './editor-store-provider';
 import { buildExampleGraph } from './example-graph';
 import { buildNewGraph } from './new-graph';
+import { PropertiesSheet, type SheetRequest } from './properties-sheet';
 import { SvgGraphRenderer } from './svg-graph-renderer';
 
-// Tela do Laboratório (Fase 3, incrementos 3.6 e 3.7). O aluno começa um grafo vazio (orientado ou não) ou carrega o exemplo, escolhe o
+// Tela do Laboratório (Fase 3, incrementos 3.6 a 3.8). O aluno começa um grafo vazio (orientado ou não) ou carrega o exemplo, escolhe o
 // modo e toca no quadro: em Adicionar vértice cria vértices; em Conectar toca em um vértice (a ORIGEM, que ganha destaque) e em outro
-// (o DESTINO), e a aresta é criada; desfaz e refaz pelos botões. Selecionar e arrastar ainda não existem. A store vive no escopo desta
+// (o DESTINO), e a aresta é criada; em Selecionar toca em um vértice ou aresta (que ganha destaque) e, pelos botões Editar e Excluir, abre a
+// folha de propriedades (rótulo, peso) ou a confirmação de exclusão; desfaz e refaz pelos botões. Arrastar ainda não existe. A store vive no escopo desta
 // tela (provider abaixo): se a aba for desmontada, a sessão acaba, pois nada é persistido. Começar outro grafo SUBSTITUI o atual na hora
 // (sem confirmação), e desfazer não o traz de volta (o histórico é zerado).
 //
 // O MESMO detector entrega o toque, e o MODO decide o caminho, um só por toque: `connect` → `store.connectTap` (máquina de estados do
-// núcleo, origem pendente na store); qualquer outro → `tapToEditorAction` (criar vértice, só em `add-vertex`).
+// núcleo, origem pendente na store); `select` → `tapToSelectionAction` (selecionar ou limpar); `add-vertex` → `tapToEditorAction` (criar vértice).
+// Com a folha de propriedades aberta nenhum toque chega ao canvas (o `Modal` o cobre e `onCanvasTap` também confere).
 //
 // CÂMERA. Ela NÃO está na store e NÃO é recalculada a cada edição: o modo da câmera é decidido só ao começar uma sessão.
 // - grafo novo: câmera NEUTRA (a origem do mundo no canto do quadro; cada toque cria o vértice no mesmo ponto em dp);
@@ -58,7 +62,7 @@ export function LabScreen() {
 }
 
 const PLANNED = [
-  'Selecionar, editar e excluir vértices e arestas.',
+  'Arrastar vértices e ampliar ou deslocar o quadro com gestos.',
   'Ver o mesmo grafo como lista de adjacência e como matrizes.',
   'Executar BFS e DFS passo a passo, com explicação de cada passo.',
   'Comparar a complexidade de tempo e de espaço dos algoritmos.',
@@ -78,12 +82,14 @@ export function LabContent() {
   const layout = useEditorStore(selectLayout);
   const mode = useEditorStore(selectMode);
   const connectSource = useEditorStore(selectConnectSource);
+  const selection = useEditorStore(selectSelection);
   const reset = useEditorStore((state) => state.reset);
   const store = useEditorStoreApi();
   const [started, setStarted] = useState(false);
   const [view, setView] = useState<CameraView>(NEUTRAL_VIEW);
   const [measuredWidth, setMeasuredWidth] = useState(0);
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
+  const [sheet, setSheet] = useState<SheetRequest | undefined>(undefined);
   const serial = useRef(0);
 
   const size = canvasSize(measuredWidth);
@@ -109,10 +115,15 @@ export function LabContent() {
   // feito se o canvas ainda não foi medido. Um toque segue UM caminho, escolhido pelo modo: em Conectar, a máquina de estados da
   // conexão (origem, destino, cancelar); nos outros, a criação de vértice (só em Adicionar vértice, em área vazia).
   const onCanvasTap = (point: Point): void => {
-    if (camera === undefined || width === undefined || height === undefined) return;
+    if (sheet !== undefined || camera === undefined || width === undefined || height === undefined) return;
     const { editor, dispatch, connectTap } = store.getState();
     if (editor.mode === 'connect') {
       connectTap(camera, point, { width, height });
+      return;
+    }
+    if (editor.mode === 'select') {
+      const selecting = tapToSelectionAction(editor, camera, point, { width, height });
+      if (selecting !== undefined) dispatch(selecting);
       return;
     }
     const action = tapToEditorAction(editor, camera, point, { width, height });
@@ -121,6 +132,7 @@ export function LabContent() {
 
   const startNewGraph = (directed: boolean): void => {
     serial.current += 1;
+    setSheet(undefined);
     setLoadError(undefined);
     setStarted(true);
     setView(NEUTRAL_VIEW);
@@ -134,6 +146,7 @@ export function LabContent() {
       return;
     }
     const exampleLayout = circularLayout(example.value);
+    setSheet(undefined);
     setLoadError(undefined);
     setStarted(true);
     setView({ kind: 'fit', graph: example.value, layout: exampleLayout });
@@ -142,97 +155,114 @@ export function LabContent() {
 
   const isEmpty = graph.vertices.length === 0;
   return (
-    <Screen title="Laboratório" subtitle="Comece um grafo, adicione vértices tocando no quadro e conecte-os no modo Conectar.">
-      {started ? (
-        <>
-          <ModeBar />
-          <View style={styles.block}>
-            <CanvasTapDetector onTap={onCanvasTap}>
-              <View testID="canvas-area" onLayout={onCanvasLayout} style={styles.canvasArea}>
-                {scene !== undefined && width !== undefined && height !== undefined ? (
-                  <SvgGraphRenderer scene={scene} width={width} height={height} highlightedVertexId={connectSource} />
-                ) : (
-                  <View style={styles.pending} />
-                )}
-                {isEmpty ? (
-                  // A instrução do quadro vazio fica DENTRO do quadro (como o texto de um campo vazio), sobreposta e com
-                  // `pointerEvents: 'none'`: o toque a atravessa e chega ao detector. Fora do fluxo, ela não muda a posição do
-                  // quadro quando some com o primeiro vértice (antes, o quadro subia e o vértice ficava longe do dedo).
-                  <View testID="canvas-hint" style={[StyleSheet.absoluteFill, styles.hint]}>
-                    <Text color="textSecondary" style={styles.hintText}>
-                      {mode === 'add-vertex'
-                        ? 'Toque no espaço para adicionar o primeiro vértice.'
-                        : 'Selecione Adicionar vértice e toque no espaço para começar.'}
-                    </Text>
-                  </View>
-                ) : null}
-                <View
-                  accessibilityElementsHidden
-                  importantForAccessibility="no-hide-descendants"
-                  style={[StyleSheet.absoluteFill, styles.border, { borderColor: colors.border }]}
-                />
+    <>
+      <Screen title="Laboratório" subtitle="Comece um grafo, adicione vértices e arestas tocando no quadro, e selecione para editar ou excluir.">
+        {started ? (
+          <>
+            <ModeBar />
+            <View style={styles.block}>
+              <CanvasTapDetector onTap={onCanvasTap}>
+                <View testID="canvas-area" onLayout={onCanvasLayout} style={styles.canvasArea}>
+                  {scene !== undefined && width !== undefined && height !== undefined ? (
+                    <SvgGraphRenderer scene={scene} width={width} height={height} highlightedVertexId={connectSource} selection={selection} />
+                  ) : (
+                    <View style={styles.pending} />
+                  )}
+                  {isEmpty ? (
+                    // A instrução do quadro vazio fica DENTRO do quadro (como o texto de um campo vazio), sobreposta e com
+                    // `pointerEvents: 'none'`: o toque a atravessa e chega ao detector. Fora do fluxo, ela não muda a posição do
+                    // quadro quando some com o primeiro vértice (antes, o quadro subia e o vértice ficava longe do dedo).
+                    <View testID="canvas-hint" style={[StyleSheet.absoluteFill, styles.hint]}>
+                      <Text color="textSecondary" style={styles.hintText}>
+                        {mode === 'add-vertex'
+                          ? 'Toque no espaço para adicionar o primeiro vértice.'
+                          : 'Selecione Adicionar vértice e toque no espaço para começar.'}
+                      </Text>
+                    </View>
+                  ) : null}
+                  <View
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                    style={[StyleSheet.absoluteFill, styles.border, { borderColor: colors.border }]}
+                  />
+                </View>
+              </CanvasTapDetector>
+              <ConnectStatus />
+              <SelectionStatus
+                onEdit={(chosen) => {
+                  setSheet({ view: 'edit', selection: chosen });
+                }}
+                onDelete={(chosen) => {
+                  setSheet({ view: 'delete', selection: chosen });
+                }}
+              />
+              <View style={styles.badges}>
+                <Badge label={graph.name === '' ? 'Grafo sem nome' : graph.name} />
               </View>
-            </CanvasTapDetector>
-            <ConnectStatus />
-            <View style={styles.badges}>
-              <Badge label={graph.name === '' ? 'Grafo sem nome' : graph.name} />
+              {scene === undefined ? null : (
+                <Text color="textSecondary" accessibilityElementsHidden importantForAccessibility="no">
+                  {scene.summary}
+                </Text>
+              )}
             </View>
-            {scene === undefined ? null : (
-              <Text color="textSecondary" accessibilityElementsHidden importantForAccessibility="no">
-                {scene.summary}
-              </Text>
-            )}
+            <HistoryBar />
+          </>
+        ) : (
+          <View style={[styles.empty, { borderColor: colors.border }]}>
+            <EmptyState
+              title="Nenhum grafo carregado"
+              description="Comece um grafo vazio, adicione vértices tocando no quadro, conecte-os e edite, ou carregue o exemplo." />
           </View>
-          <HistoryBar />
-        </>
-      ) : (
-        <View style={[styles.empty, { borderColor: colors.border }]}>
-          <EmptyState
-            title="Nenhum grafo carregado"
-            description="Comece um grafo vazio, adicione vértices tocando no quadro e conecte-os, ou carregue o exemplo." />
+        )}
+        <View style={styles.starts}>
+          <Button
+            label="Novo grafo não orientado"
+            accessibilityHint="Começa um grafo vazio, sem direção nas arestas, e ativa Adicionar vértice"
+            onPress={() => {
+              startNewGraph(false);
+            }}
+          />
+          <Button
+            label="Novo grafo orientado"
+            accessibilityHint="Começa um grafo vazio, com direção nas arestas, e ativa Adicionar vértice"
+            onPress={() => {
+              startNewGraph(true);
+            }}
+          />
+          <Button
+            variant="secondary"
+            label="Carregar exemplo"
+            accessibilityHint="Mostra um grafo orientado de quatro vértices no quadro"
+            onPress={loadExample}
+          />
         </View>
-      )}
-      <View style={styles.starts}>
-        <Button
-          label="Novo grafo não orientado"
-          accessibilityHint="Começa um grafo vazio, sem direção nas arestas, e ativa Adicionar vértice"
-          onPress={() => {
-            startNewGraph(false);
-          }}
-        />
-        <Button
-          label="Novo grafo orientado"
-          accessibilityHint="Começa um grafo vazio, com direção nas arestas, e ativa Adicionar vértice"
-          onPress={() => {
-            startNewGraph(true);
-          }}
-        />
-        <Button
-          variant="secondary"
-          label="Carregar exemplo"
-          accessibilityHint="Mostra um grafo orientado de quatro vértices no quadro"
-          onPress={loadExample}
-        />
-      </View>
-      {loadError === undefined ? null : (
-        <Text accessibilityRole="alert" color="textSecondary">
-          {`Não foi possível montar o exemplo. ${loadError}`}
-        </Text>
-      )}
-      <Card>
-        <Text variant="label">O que ainda vem aqui</Text>
-        {PLANNED.map((item) => (
-          <View key={item} style={styles.row}>
-            <Text color="primary" accessibilityElementsHidden>
-              •
-            </Text>
-            <Text color="textSecondary" style={styles.rowText}>
-              {item}
-            </Text>
-          </View>
-        ))}
-      </Card>
-    </Screen>
+        {loadError === undefined ? null : (
+          <Text accessibilityRole="alert" color="textSecondary">
+            {`Não foi possível montar o exemplo. ${loadError}`}
+          </Text>
+        )}
+        <Card>
+          <Text variant="label">O que ainda vem aqui</Text>
+          {PLANNED.map((item) => (
+            <View key={item} style={styles.row}>
+              <Text color="primary" accessibilityElementsHidden>
+                •
+              </Text>
+              <Text color="textSecondary" style={styles.rowText}>
+                {item}
+              </Text>
+            </View>
+          ))}
+        </Card>
+      </Screen>
+      {/* Fora da `Screen`: dentro do ScrollView dela, com um campo focado, o ScrollView capturaria os toques da folha (ver properties-sheet.tsx). */}
+      <PropertiesSheet
+        request={sheet}
+        onClose={() => {
+          setSheet(undefined);
+        }}
+      />
+    </>
   );
 }
 

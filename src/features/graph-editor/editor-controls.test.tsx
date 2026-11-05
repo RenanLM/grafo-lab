@@ -6,7 +6,7 @@ import { colors, minTouchTarget } from '@/theme';
 
 import { NEUTRAL_CAMERA, positionOf, type EditorMode } from './core';
 import { type EditorStore } from './editor-store';
-import { ConnectStatus, HistoryBar, ModeBar } from './editor-controls';
+import { ConnectStatus, HistoryBar, ModeBar, SelectionStatus } from './editor-controls';
 import { EditorStoreProvider, useEditorStoreApi } from './editor-store-provider';
 
 // Barra de modos, linha de estado do modo Conectar e barra de histórico (ver editor-controls.tsx): só despacham ações do núcleo (ou
@@ -21,11 +21,14 @@ async function mountControls(mode: EditorMode = 'select') {
     stores.push(useEditorStoreApi());
     return null;
   }
+  const onEdit = jest.fn();
+  const onDelete = jest.fn();
   await render(
     <EditorStoreProvider initial={{ graph: createGraph({ id: 'g' }), mode }}>
       <Probe />
       <ModeBar />
       <ConnectStatus />
+      <SelectionStatus onEdit={onEdit} onDelete={onDelete} />
       <HistoryBar />
     </EditorStoreProvider>,
   );
@@ -42,7 +45,7 @@ async function mountControls(mode: EditorMode = 'select') {
     });
   };
   const editor = () => store.getState().editor;
-  return { store, add, tapConnect, editor, user: userEvent.setup() };
+  return { store, add, tapConnect, editor, onEdit, onDelete, user: userEvent.setup() };
 }
 
 const radio = (name: string) => screen.getByRole('radio', { name });
@@ -367,5 +370,88 @@ describe('ConnectStatus', () => {
     expect(alturaDoCancelar).toBeGreaterThanOrEqual(minTouchTarget);
     await tapConnect(60, 60); // o Cancelar aparece
     expect(style(screen.getByTestId('connect-status-row')).minHeight).toBe(alturaDoCancelar);
+  });
+});
+
+describe('ModeBar: o modo Selecionar', () => {
+  it('a dica do Selecionar diz o que o toque faz agora (seleciona e limpa), não mais "não seleciona nada"', async () => {
+    await mountControls('select');
+
+    expect(radio('Selecionar').props.accessibilityHint).toBe('Toque em um vértice ou em uma aresta para selecioná-lo e em um espaço vazio para limpar a seleção');
+    expect(radio('Selecionar').props.accessibilityHint).not.toMatch(/não seleciona/);
+  });
+});
+
+describe('SelectionStatus', () => {
+  const select = (store: EditorStore, selection: { type: 'vertex'; vertexId: string } | { type: 'edge'; edgeId: string } | { type: 'none' }) =>
+    act(async () => {
+      store.getState().dispatch({ type: 'select', selection });
+    });
+
+  it('só existe no modo Selecionar', async () => {
+    const { user, add } = await mountControls('select');
+    await add(60, 60);
+    expect(screen.getByTestId('selection-status')).toBeOnTheScreen();
+
+    await user.press(radio('Adicionar vértice'));
+    expect(screen.queryByTestId('selection-status')).toBeNull();
+    await user.press(radio('Selecionar'));
+    expect(screen.getByTestId('selection-status')).toBeOnTheScreen();
+  });
+
+  it('sem seleção: a instrução e nenhum botão Editar ou Excluir', async () => {
+    await mountControls('select');
+
+    expect(screen.getByTestId('selection-status')).toHaveTextContent('Toque em um vértice ou em uma aresta para selecioná-lo.');
+    expect(screen.queryByRole('button', { name: /Editar propriedades/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Excluir/ })).toBeNull();
+  });
+
+  it('com um vértice selecionado: "Vértice A selecionado.", e os botões Editar e Excluir com rótulos acessíveis', async () => {
+    const { store, add } = await mountControls('select');
+    await add(60, 60);
+    await select(store, { type: 'vertex', vertexId: 'v1' });
+
+    expect(screen.getByTestId('selection-status')).toHaveTextContent('Vértice A selecionado.');
+    expect(button('Editar propriedades do vértice A')).toBeOnTheScreen();
+    expect(button('Excluir vértice A')).toBeOnTheScreen();
+    expect(button('Editar propriedades do vértice A').props.accessibilityHint).toBe('Abre a folha de propriedades');
+    expect(button('Excluir vértice A').props.accessibilityHint).toBe('Pede uma confirmação antes de excluir');
+  });
+
+  it('os botões entregam a seleção atual aos pedidos (a tela abre a folha)', async () => {
+    const { store, add, user, onEdit, onDelete } = await mountControls('select');
+    await add(60, 60);
+    await select(store, { type: 'vertex', vertexId: 'v1' });
+    await user.press(button('Editar propriedades do vértice A'));
+    await user.press(button('Excluir vértice A'));
+
+    expect(onEdit).toHaveBeenCalledWith({ type: 'vertex', vertexId: 'v1' });
+    expect(onDelete).toHaveBeenCalledWith({ type: 'vertex', vertexId: 'v1' });
+  });
+
+  it('uma aresta selecionada: "entre A e B" com o peso ("Sem peso." ou "Peso 2,5."), e rótulos acessíveis de aresta', async () => {
+    const { store, add } = await mountControls('select');
+    await add(60, 60);
+    await add(200, 60);
+    await act(async () => {
+      store.getState().dispatch({ type: 'connect', source: 'v1', target: 'v2', weight: 2.5 });
+    });
+    await select(store, { type: 'edge', edgeId: 'e1' });
+
+    expect(screen.getByTestId('selection-status')).toHaveTextContent('Aresta entre A e B selecionada. Peso 2,5.');
+    expect(button('Editar propriedades da aresta entre A e B')).toBeOnTheScreen();
+    expect(button('Excluir aresta entre A e B')).toBeOnTheScreen();
+  });
+
+  it('é uma região viva, com altura mínima igual à do botão (nada abaixo do canvas se mexe quando os botões aparecem)', async () => {
+    const { store, add } = await mountControls('select');
+    await add(60, 60);
+    const alturaDoBotao = 24 + 12 * 2 + 3;
+
+    expect(screen.getByTestId('selection-status').props.accessibilityLiveRegion).toBe('polite');
+    expect(style(screen.getByTestId('selection-status-row')).minHeight).toBe(alturaDoBotao);
+    await select(store, { type: 'vertex', vertexId: 'v1' });
+    expect(style(screen.getByTestId('selection-status-row')).minHeight).toBe(alturaDoBotao);
   });
 });

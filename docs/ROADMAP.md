@@ -130,11 +130,11 @@ estão em `ARCHITECTURE.md`):
 A etapa 3.4B registrou a tabela comparativa e as medições em `ARCHITECTURE.md`; limites de tamanho para a interface
 só depois de medir em Hermes e em Android com poucos recursos (tarefa 4.6).
 
-## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 a 3.7 concluídos; os demais aguardam autorização)
+## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 a 3.8 concluídos; os demais aguardam autorização)
 
 Só os incrementos 3.0 (infraestrutura), 3.1 (câmera pura), 3.2 (`GraphLayout` puro), 3.3 (geometria das arestas e
 hit-testing puros), 3.4 (núcleo de edição, histórico e store Zustand), 3.5 (renderizador SVG somente leitura e exemplo no
-Laboratório), 3.6 (modo Adicionar vértice, toque no canvas e desfazer/refazer) e 3.7 (modo Conectar) foram feitos; **já é possível criar grafos completos tocando no canvas, mas ainda não selecionar, editar, excluir, arrastar, ampliar nem deslocar**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
+Laboratório), 3.6 (modo Adicionar vértice, toque no canvas e desfazer/refazer) , 3.7 (modo Conectar) e 3.8 (seleção, propriedades e exclusão) foram feitos; **já é possível construir e editar grafos completos tocando no canvas, mas ainda não arrastar vértices, ampliar nem deslocar o quadro**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
 quando houver regra nova e uma mensagem de commit. Tamanhos: **S** (um módulo puro e seus testes) e **M** (lógica +
 interface). Ordem como no prompt mestre: renderizar, criar, conectar, selecionar; **depois** arrastar, deslocar e
 ampliar, em incrementos separados.
@@ -422,13 +422,20 @@ ampliar, em incrementos separados.
   - *Testes:* 121 novos; total do projeto **2141**. Mutação dirigida: 64 mutações, 63 detectadas (2 só depois de reforçar os testes) e 1 **equivalente**. Detalhes em `ARCHITECTURE.md`, "Modo Conectar".
   - *Commit:* `feat(editor): add vertex connection mode with source highlight`
 
-- ⬜ **3.8 Modo Selecionar, propriedades e exclusão** (M). Toque seleciona vértice/aresta; toque longo abre a folha de
-  propriedades (rótulo do vértice; peso da aresta, com vírgula decimal, "sem peso" ≠ 0); excluir **com confirmação**
-  (diz quantas arestas somem junto). Decisão 4.
-  - *Aceite:* rótulo vazio ou com mais de 64 pontos de código é recusado com mensagem; remover o peso deixa a aresta sem
-    peso; `NaN` e `Infinity` são recusados; excluir vértice some com suas arestas e é desfeito de uma vez.
-  - *Testes:* ações puras, conversão do texto numérico ("2,5", "-0", "abc", vazio), RNTL da folha e da confirmação.
-  - *Commit:* `feat(editor): add selection, properties sheet and deletion`
+- ✅ **3.8 Modo Selecionar, propriedades e exclusão** (M). Três partes, cada uma fechada com `npm run check`. **Sem** arrasto, zoom, pan, toque longo, SQLite, algoritmos nem biblioteca de bottom sheet. O domínio e o JSON v1 não mudaram.
+  - *A. Seleção pura e conversão de peso* (`core/selection.ts`, `core/weight-input.ts`): `tapToSelectionAction(estado, câmera, ponto, viewport)`: no modo `select`, vértice → `select`, aresta → `select`, fundo → `clear-selection`; o `hitTest` do 3.3 (via `hitTapTarget`, sem conta nova); tocar de novo mantém; cancelado, inválido ou fora do canvas não faz nada. `parseWeightInput`: gramática
+    explícita com sinal, vírgula ou ponto, expoente; **campo vazio remove o peso, `0` é um peso**, `-0` vale `0`, `NaN`, `Infinity`, `1,2,3`, `1.234,56` e prefixos como `12abc` são recusados, `1e400` é "fora da faixa"; sem `parseFloat` e sem React Native.
+  - *B. Propriedades e exclusão* (`core/properties.ts`, `core/deletion.ts`, `properties-sheet.tsx`): rascunho a partir do elemento; Salvar vira UMA ação (`set-label` ou `set-weight`), com a validação definitiva do domínio e as mensagens em português; Cancelar e Voltar descartam; **excluir com confirmação** que diz quantas arestas somem junto (cada uma uma vez, entradas e saídas do orientado),
+    confirma pela identidade do alvo (se a seleção mudou, nada é excluído) e usa `remove-selection` (um passo; desfazer restaura vértice, arestas e posição). A folha é um `Modal` nativo em forma de folha inferior, sobreposta (não desloca o canvas), com visões de edição e de exclusão.
+  - *C. Integração visual:* `SelectionStatus` (texto de estado e botões Editar e Excluir, ABAIXO do canvas, altura mínima fixa), destaque no SVG por um contrato explícito (`selection` no renderizador: anel sólido e contorno grosso no vértice; halo, traço grosso e seta com contorno na aresta; diferente do anel tracejado da origem do Conectar), política da store "sair do Selecionar limpa a seleção", um toque segue um único caminho
+    (Adicionar, Conectar ou Selecionar) e a folha é montada **fora** do `ScrollView` da tela.
+  - *Aceite:* selecionar não cria histórico; editar rótulo, definir, trocar e remover peso, excluir aresta e excluir vértice são um passo cada; salvar o mesmo valor ou um valor inválido não cria passo; peso zero e aresta sem peso nunca se confundem; a seleção é limpa ao excluir, ao desfazer o que a criou e ao sair do modo; ids nunca recuam; o canvas e a câmera não mudam.
+  - *Android (emulador Pixel_6, Expo Go 58.0.5, toques reais, temas escuro e claro):* o roteiro de 23 itens foi percorrido (selecionar, anel, folha, renomear com "í" real do teclado, aresta, 2,5, 0, remover, excluir e desfazer a aresta, excluir o vértice com 2 arestas e desfazer, Voltar, deslizes que não selecionam, canvas parado, tema claro, Adicionar e Conectar, abas).
+    **Dois defeitos reais achados só no aparelho e corrigidos:** a folha cortava o último botão (`maxHeight` percentual) e, com o teclado aberto, o `ScrollView` da tela capturava o toque em Salvar (a folha estava dentro dele). **Não verificado:** TalkBack, iOS, aparelho físico, pinça, arrasto e multitoque (fora do incremento), outras larguras, rotação, escala de fonte e desempenho.
+  - *Complexidade:* hit-testing Θ(V + E·N) por toque; selecionar O(V) ou O(E); `parseWeightInput` Θ(n); rótulo Θ(V) e peso Θ(E) mais o passo de histórico; excluir vértice Θ(V + E); a cena só é refeita (Θ(V + E)) quando o grafo muda, não ao selecionar. Sem índice espacial nem cache.
+  - *Limitações:* sem toque longo (a folha abre pelos botões); rótulo truncado no círculo; "Novo grafo" sem confirmação; folha sem teste com leitor de tela nem com fonte maior.
+  - *Testes:* 249 novos; total do projeto **2390**. Mutação dirigida: 90 mutações, 90 detectadas (5 só depois de reforçar os testes), nenhuma equivalente. Detalhes em `ARCHITECTURE.md`, "Seleção, propriedades e exclusão".
+  - *Commit:* `feat(editor): add selection, properties sheet and deletion` (sugerido em partes no final do relatório)
 
 - ⬜ **3.9 Arrastar vértices** (M). Arrasto no modo Selecionar move o vértice, **sem mover a câmera**; posição ao vivo em
   valor compartilhado do Reanimated (thread da interface) e gravada na store **ao soltar** (um passo de histórico).

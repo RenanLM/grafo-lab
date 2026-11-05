@@ -767,8 +767,8 @@ unidades de tela (≈ 48 dp) é independente do desenho.
   geometria das arestas e identificação por posição (3.3: `edgeGeometry`, `edgeGeometries`, `hitTestVertex`, `hitTestEdge`,
   `hitTest`); comandos do editor, histórico e mensagens de erro (3.4: `applyAction`, `createEditorState`, `nextFreeLabel`,
   `graphErrorMessage`); cena do grafo e enquadramento inicial (3.5: `buildGraphScene`, `fitCameraToGraph`,
-  `graphContentBounds`); toque em ação (3.6: `tapToEditorAction`); máquina de estados do modo Conectar e texto de estado (3.7: `connectStep`, `reconcileConnection`, `tapToConnectTransition`, `connectStatusMessage`). Hoje a pasta tem `index.ts` (contrato e exportações), `camera.ts` (3.1), `layout.ts` (3.2),
-  `geometry.ts` (3.3), `editor.ts` e `error-messages.ts` (3.4), `scene.ts` (3.5), `tap.ts` (3.6), `connect.ts` e `connect-status.ts` (3.7), seus testes (`*.test.ts`, mais
+  `graphContentBounds`); toque em ação (3.6: `tapToEditorAction`); máquina de estados do modo Conectar e texto de estado (3.7: `connectStep`, `reconcileConnection`, `tapToConnectTransition`, `connectStatusMessage`); seleção por toque, conversão do texto de peso, propriedades e exclusão com confirmação (3.8: `tapToSelectionAction`, `selectionStatusMessage`, `parseWeightInput`, `describeProperties`, `describeDeletion`, `confirmedDeletionAction`). Hoje a pasta tem `index.ts` (contrato e exportações), `camera.ts` (3.1), `layout.ts` (3.2),
+  `geometry.ts` (3.3), `editor.ts` e `error-messages.ts` (3.4), `scene.ts` (3.5), `tap.ts` (3.6), `connect.ts` e `connect-status.ts` (3.7), `selection.ts`, `weight-input.ts`, `properties.ts` e `deletion.ts` (3.8), seus testes (`*.test.ts`, mais
   `boundary.test.ts`), e `test-helpers.ts` (gerador de sementes e `deepFreeze`, só para testes).
 - **C. Interface** (`src/features/graph-editor/`): desenha vértices e arestas, recebe os toques e os traduz em
   **ações** do núcleo, mostra controles, propriedades e representações, executa animações. Não decide regras do grafo
@@ -1230,7 +1230,7 @@ abrir um documento). A origem pendente do modo `connect` mora na store, ao lado 
 lógica privada `defaultLabel` do domínio (que não é exportada e não foi alterada). Um `Graph` restaurado pode ser uma cópia
 rasa nova (só quando o contador sobe), então comparar por referência não vale; compare por conteúdo.
 
-### Interação por toque (arquitetura; implementados: hit-testing no 3.3, toque que cria vértice no 3.6 e dois toques que conectam no 3.7)
+### Interação por toque (arquitetura; implementados: hit-testing no 3.3, toque que cria vértice no 3.6, dois toques que conectam no 3.7 e toque que seleciona no 3.8)
 
 - **Um detector para o canvas**, com gestos compostos (API de hooks do Gesture Handler 3: `useTapGesture`,
   `usePanGesture`, `usePinchGesture`, `useLongPressGesture` e as composições `useSimultaneousGestures`,
@@ -1240,7 +1240,7 @@ rasa nova (só quando o contador sobe), então comparar por referência não val
   vértice, calculado depois de converter o centro do mundo para a tela. O desenho pode ser menor (ou maior com zoom),
   mas **o alvo nunca encolhe** abaixo disso. Sobreposição: o vértice mais perto do toque vence, e o empate vai para a
   ordem de inserção. Arestas têm tolerância própria em dp de tela e só são acertadas fora dos vértices. **Implementado**
-  em `hitTestVertex`, `hitTestEdge` e `hitTest` (`core/geometry.ts`, 3.3); o toque os chama desde o 3.6 (`tapToEditorAction`) e o 3.7 (`tapToConnectTransition`); arrasto, pinça e toque longo compostos ficam para o 3.10.
+  em `hitTestVertex`, `hitTestEdge` e `hitTest` (`core/geometry.ts`, 3.3); o toque os chama desde o 3.6 (`tapToEditorAction`) , o 3.7 (`tapToConnectTransition`) e o 3.8 (`tapToSelectionAction`); arrasto, pinça e toque longo compostos ficam para o 3.10.
 - **Modo explícito** (Selecionar, Adicionar vértice, Conectar) e uma função pura `(modo, toque, o que há sob ele) → ação`.
 
   | Modo | Toque | Arrasto que começa em vértice | Arrasto no fundo | Pinça | Toque longo |
@@ -1469,7 +1469,7 @@ reaproveitados depois de desfazer, câmera reenquadrada a cada edição, reset q
 habilitados indevidamente. As mutações do núcleo de edição (3.4) e da geometria (3.3) não foram repetidas; as 3 do histórico foram rodadas só
 contra os testes da interface, para provar que a tela também as detecta.
 
-**Limitações conhecidas.** Selecionar ainda não seleciona; Conectar só existe a partir do 3.7; sem arrasto, zoom nem pan (o toque só cria
+**Limitações conhecidas.** (Do 3.6; Selecionar passou a selecionar no 3.8 e Conectar existe desde o 3.7.) Sem arrasto, zoom nem pan (o toque só cria
 vértices); "Novo grafo" substitui o grafo atual sem confirmação e sem desfazer; a câmera é estática (um vértice tocado perto da borda
 pode ficar parcialmente cortado, e fora do enquadramento original do exemplo ele pode ficar fora da área visível ao girar o aparelho); o
 texto do SVG não é medido (3.5); a mensagem do quadro vazio e os rótulos não acompanham a escala de fonte do sistema com garantia (não
@@ -1586,6 +1586,103 @@ foram validados com leitor de tela; um grafo com rótulos muito longos faz a ins
 pode crescer (não testado).
 
 
+### Seleção, propriedades e exclusão (incremento 3.8: `core/selection.ts`, `core/weight-input.ts`, `core/properties.ts`, `core/deletion.ts`, `properties-sheet.tsx`, destaque no SVG)
+
+No modo **Selecionar** o toque seleciona um vértice ou uma aresta; os botões **Editar** e **Excluir** abrem a folha de propriedades (rótulo do vértice, peso da
+aresta) ou a confirmação de exclusão. Tudo passa pelo núcleo: `select`, `clear-selection`, `set-label`, `set-weight` e `remove-selection` (3.4). **Não existem** (e não foram
+simulados) arrasto, zoom e pan por gesto, toque longo, SQLite nem algoritmos. O domínio e o JSON v1 não mudaram.
+
+**Seleção por toque (`tapToSelectionAction(estado, câmera, ponto, viewport, opções?) → EditorAction | undefined`).** Pura, nos moldes de `tapToEditorAction` (3.6) e de
+`connect.ts` (3.7). O que está sob o dedo vem de `hitTapTarget` (o MESMO trecho de validação e `hitTest` do 3.3; **nenhuma** conta de proximidade nova):
+
+| Modo | Alvo do toque (do `hitTest`) | Ação |
+| --- | --- | --- |
+| `select` | vértice | `select` do vértice (por id técnico) |
+| `select` | aresta (fora de qualquer vértice) | `select` da aresta |
+| `select` | fundo | `clear-selection` |
+| `select` | toque fora do canvas, inválido ou câmera/área inválidas | nada |
+| `add-vertex`, `connect` | qualquer | nada (cada modo tem o seu caminho) |
+
+A prioridade vértice > aresta > fundo é a do `hitTest` (vértice sobre aresta vence; arcos opostos são duas curvas, cada uma selecionável por si). Tocar de novo no que já está
+selecionado **mantém** a seleção: o `applyAction` devolve o mesmo estado e ninguém é avisado. **Um toque, um caminho:** a tela escolhe pelo modo (`connect` → `connectTap`; `select` →
+`tapToSelectionAction`; `add-vertex` → `tapToEditorAction`), nunca dois. O mesmo detector do 3.6 entrega o toque (coordenadas locais, `maxDistance` de 10 dp, cancelado não age), então um deslize
+ou a rolagem da página não seleciona nada.
+
+**A seleção é por id e fica fora do histórico** (3.4): selecionar, limpar, abrir a folha e cancelar não criam passo. Como a seleção é do `EditorState` e o `set-mode` do núcleo não mexe nela, a política
+"**sair do modo Selecionar limpa a seleção**" é do `dispatch` da store (a mesma ideia da origem pendente do Conectar), para o destaque não ficar em outro modo; entrar em Selecionar não limpa nada. Uma seleção cujo
+elemento deixa de existir (desfazer, refazer, exclusão) é limpa pelo próprio núcleo.
+
+**Contrato de destaque visual.** `GraphRendererProps.selection?: EditorSelection` (ao lado de `highlightedVertexId`, da origem do Conectar). É só um estado VISUAL: a cena (`GraphScene`) e a geometria não mudam, o grafo não
+sabe dele, a câmera não é tocada. Vértice: **anel SÓLIDO** concêntrico (token `text`, 3 dp, raio + 6 dp) e contorno de 4 dp (contra 2 dp); aresta: **traço de 4 dp** no token `primary`, um **halo translúcido de 10 dp** por baixo e a
+ponta da seta com contorno. O anel da origem do Conectar é **tracejado**; a diferença é de FORMA (sólido × tracejado, espessura, halo), não só de cor, e vale nos dois temas. O halo (10 dp, 5 dp de cada lado) é mais estreito que a tolerância de
+toque da aresta (12 dp): o que se vê nunca promete uma área de toque maior que a do hit-testing.
+
+**Linha de estado e botões (`SelectionStatus`).** Só no modo Selecionar, logo ABAIXO do canvas, com altura mínima de 51 dp (a do botão): "Toque em um vértice ou em uma aresta para selecioná-lo." → "Vértice A selecionado." →
+"Aresta entre A e B selecionada. Peso 2,5." (ou "Sem peso."; "de A para B" no orientado) e, havendo seleção, os botões **Editar** e **Excluir** (rótulos acessíveis: "Editar propriedades do vértice A", "Excluir aresta entre A e B"). O texto cita o
+RÓTULO, nunca o id; é uma região viva (`polite`). Peso `0` aparece como "Peso 0." e aresta sem peso como "Sem peso.", nunca confundidos. Se o texto quebrar em várias linhas (rótulos longos), só o que está ABAIXO do canvas se mexe, nunca o canvas.
+
+**Folha de propriedades (`properties-sheet.tsx`).** Um `Modal` nativo do React Native (transparente, `animationType="slide"`) apresentado como folha inferior; **nenhuma biblioteca** de modal ou de bottom sheet foi instalada. Por ser uma janela própria, ela é SOBREPOSTA: abrir,
+fechar, o teclado e as mensagens de dentro dela não mudam o layout nem a câmera do canvas, e a tela ignora toques no canvas enquanto ela está aberta. Duas visões no mesmo `Modal` (dois empilhados são frágeis no Android): **editar** e **excluir**
+(a confirmação, separada da edição). Ela só desenha e chama o núcleo: não valida rótulo nem peso (a validação definitiva é a do domínio, por `set-label` e `set-weight`), não conta arestas e não exclui por conta própria.
+- **Rascunho:** o campo começa com o valor do elemento (rótulo; peso com vírgula, vazio se não há peso) e o aluno edita só o TEXTO; nada vai ao grafo enquanto digita. **Salvar** monta UMA ação; se o núcleo a aceita (ou ela não tem efeito, como salvar o mesmo valor) a
+  folha fecha, e se recusa fica aberta com a mensagem em português. **Cancelar** e o botão **Voltar** do Android (`onRequestClose`) descartam o rascunho sem tocar no grafo nem no histórico. A folha é recriada a cada elemento (`key`), então um rascunho nunca é reaplicado a outro.
+- **Vértice:** título "Vértice A", identificador técnico (só leitura), campo Rótulo, Salvar, Cancelar e Excluir. O domínio decide: de 1 a 64 pontos de código (depois de `trim`), Unicode, rótulos repetidos permitidos; erros em português ("O rótulo não pode ficar vazio."). Salvar o mesmo rótulo não cria passo.
+- **Aresta:** título "Aresta entre A e B" (ou "de A para B"), identificador, origem, destino, orientação, "Peso atual: sem peso." / "Peso atual: 2,5.", campo Peso com a dica ("Campo vazio: a aresta fica sem peso. O peso 0 é um peso, diferente de nenhum."), botão **Remover peso** (esvazia o campo; só vale ao salvar), Salvar, Cancelar e Excluir.
+- **Acessibilidade inicial:** todos os controles têm rótulo em português ("Salvar alterações", "Cancelar edição", "Excluir vértice A", "Confirmar a exclusão do vértice A", "Rótulo do vértice A"), a mensagem de erro é um alerta e `accessibilityViewIsModal` marca a visão. **TalkBack e VoiceOver NÃO foram testados**; a acessibilidade detalhada continua sendo o 3.12.
+- **Teclado:** `KeyboardAvoidingView` só no iOS e restrito ao conteúdo do modal; no Android a janela do `Modal` redimensiona sozinha (a folha sobe sem esconder nenhum botão, conferido no emulador). O teclado não recalcula a câmera.
+
+**Onde a folha é montada importa (defeito achado no emulador).** O responder de toques do React Native segue a ÁRVORE DO REACT, não a das janelas: um `Modal` dentro de um `ScrollView` ainda é filho dele. O `ScrollView` da `Screen` tem `keyboardShouldPersistTaps` no padrão (`never`) e,
+com um campo focado, **captura** todo toque fora do campo: o botão nunca recebia o toque (nem `pressIn`) e o campo perdia o foco ao soltar. Resultado: com o teclado aberto, o primeiro toque em Salvar ou Cancelar só fechava o teclado, e o botão ainda saltava ~800 px para baixo. A correção é estrutural:
+a folha é montada **ao lado** da `Screen`, não dentro dela (um teste confere que nenhum `ScrollView` é ancestral da folha). Foi achada com logs de `pressIn`, `touchStart` e `blur` no aparelho; trocar `keyboardShouldPersistTaps` na rolagem da própria folha, ou tirá-la, não mudou nada.
+Um segundo defeito, só do aparelho: `maxHeight: '90%'` na folha (porcentagem contra um pai de altura automática) fazia o Yoga cortar a folha em 90% do próprio conteúdo e o último botão (Excluir) ficava pela metade; agora a altura máxima é um NÚMERO (90% da altura da janela).
+
+**Conversão do texto do peso (`parseWeightInput`, TypeScript puro, sem React Native).** O **campo vazio REMOVE o peso** (`weight: undefined`); `0` é um peso: `Number('') === 0` seria um erro de produto. Gramática explícita, depois de tirar os espaços das pontas:
+`sinal? ( dígitos ( separador dígitos )? | separador dígitos ) expoente?`, com `sinal` = `+` ou `-`, `separador` = `,` ou `.` e `expoente` = `e` ou `E` com sinal opcional. **Nada de `parseFloat`** (aceitaria prefixos de textos inválidos).
+
+| Entrada | Resultado |
+| --- | --- |
+| `2`, `2,5`, `2.5`, `-3,75`, `+4`, `,5`, `1e3`, `2,5E-2` | 2, 2,5, 2,5, −3,75, 4, 0,5, 1000, 0,025 |
+| `0`, `-0`, `0,0` | peso `0` (nunca `-0`) |
+| vazio, só espaços (inclusive o espaço sem quebra) | **remover o peso** (`undefined`) |
+| `abc`, `NaN`, `Infinity`, `12abc`, `1,2,3`, `1.234,56`, `2,`, `0x10`, `1 2`, `--1`, algarismos não latinos | erro de formato |
+| `1e400`, `-1e400`, `1e-400` | erro "fora da faixa" (nunca `Infinity` nem um `0` enganoso) |
+
+O ponto é SEMPRE decimal (`1.234` vale 1,234): não há separador de milhar, então não se adivinha. A notação científica é aceita porque o texto que o formulário mostra para um peso existente (`formatWeightForInput`: vírgula decimal, `1e+21` para os extremos) volta a ser lido como o MESMO número (testado em ida e volta com 2000 pesos).
+
+**Exclusão com confirmação (`describeDeletion`, `deletionMessage`, `confirmedDeletionAction`).** A pergunta é montada dos dados: "Excluir o vértice A? Também serão removidas 3 arestas conectadas a ele." (singular: "Também será removida 1 aresta conectada a ele."; sem arestas: "Nenhuma aresta está conectada a ele."), "Excluir a aresta entre A e B?" ou "…de A para B?" no orientado. A contagem é por
+aresta, UMA vez cada (entradas e saídas do orientado, e a aresta de um grafo não orientado conta para os dois extremos); como laços são proibidos, uma aresta nunca é incidente duas vezes ao mesmo vértice. **Identidade do alvo:** a confirmação guarda o resumo do momento da pergunta, e `confirmedDeletionAction` só devolve a ação se a seleção ATUAL ainda é aquele mesmo elemento: se mudou,
+nada é excluído e a folha avisa ("A seleção mudou: nada foi excluído."), porque o `remove-selection` age sobre a seleção atual e poderia levar um elemento diferente do que o aluno viu. Confirmar usa `remove-selection` do núcleo (3.4): remove o vértice COM as arestas incidentes e a posição dele no layout, limpa a seleção e entra **UM** passo no histórico, qualquer que seja o número de arestas;
+desfazer restaura vértice, arestas e posição; refazer remove de novo; os contadores de id nunca recuam (um vértice novo depois de excluir C é `v4`, nunca `v3`). Cancelar não altera nada.
+
+**Histórico (resumo).** Selecionar, limpar, abrir a folha, cancelar, salvar o mesmo valor e salvar um valor inválido: **nenhum passo**. Editar rótulo, definir, trocar ou remover peso, excluir aresta e excluir vértice (com várias arestas): **um passo cada**. Uma edição nova depois de desfazer descarta o ramo de refazer.
+
+**Câmera e canvas.** A câmera continua fora da store e nunca é recalculada por seleção, folha, teclado, edição ou exclusão. O que aparece ou some FORA do canvas (a folha, sobreposta) não o desloca; o que fica abaixo dele (a linha de estado) tem altura mínima fixa e só empurra o que está abaixo, nunca o canvas (conferido por capturas em todas as etapas).
+
+**Complexidade** (V vértices, E arestas, N = 24 amostras por curva, L = limite do histórico, n = tamanho do texto): o hit-testing da seleção é Θ(V + E·N) no pior caso (o do `hitTest`), uma vez por toque; atualizar a seleção é O(V) ou O(E) (o núcleo confere que o elemento existe) e não toca no histórico; `parseWeightInput` é Θ(n); alterar um
+rótulo é Θ(V) e um peso Θ(E) (o `setVertexLabel` e o `setEdgeWeight` do domínio) mais o passo de histórico Θ(L); excluir um vértice é Θ(V + E) mais Θ(L) e contar as incidentes para a pergunta é Θ(V + E); desfazer e refazer são Θ(L + V + E) (3.4). A cena é refeita inteira, Θ(V + E), só quando o GRAFO muda (editar, excluir, desfazer, refazer), e **não** ao selecionar (o destaque é uma propriedade do renderizador, que
+procura o elemento na cena em O(V + E)). As quatro representações matemáticas não são recalculadas em nenhuma dessas interações. Sem índice espacial nem cache.
+
+**Validação no Android** (emulador Pixel_6, 1080 × 2400 a 420 dpi, Expo Go 58.0.5, `adb shell input tap`, `input swipe` e `input motionevent` com toques reais; tema escuro e claro): (1) o Laboratório abre; (2) grafo novo não orientado; (3) A, B e C; (4) A—B e A—C no modo Conectar; (5) Selecionar: tocar em A mostra o anel sólido, o contorno grosso, "Vértice A selecionado." e os botões Editar e Excluir;
+(6) a folha abre por cima, com o título, o identificador, o campo Rótulo e os botões inteiros; (7) com o teclado aberto a folha sobe sem esconder nada e o canvas não se mexe; (8) renomear A para "Início" (com o "í" do próprio teclado, pressão longa na tecla "i") salva em UM toque e o SVG mostra "In…" (o círculo trunca; o texto de estado e a folha mostram "Início");
+(9) tocar na aresta mostra o halo, o traço grosso e "Aresta entre Início e B selecionada. Sem peso."; (10) peso 2,5: aparece "2,5" na aresta e "Peso 2,5." no estado; (11) peso 0: aparece "0" (diferente de sem peso); (12) Remover peso: o campo esvazia e a aresta fica sem número; (13) excluir a aresta pede confirmação ("Excluir a aresta entre Início e B?"), remove, e Desfazer devolve;
+(14) excluir o vértice com duas arestas pergunta "Também serão removidas 2 arestas conectadas a ele." e, confirmado, some com as duas (os outros dois ficam isolados); Desfazer restaura o vértice, as arestas e a posição; (15) o botão Voltar do Android fecha a folha e a de exclusão sem alterar nada; (16) um deslize rápido (200 ms) de A até B e outro vertical sobre C (que rola a página) NÃO selecionam nada;
+(17) o canvas não se desloca em nenhuma etapa (a folha é sobreposta); (18) tema claro: folha, anel, controles legíveis; (19) Adicionar vértice cria sob o toque (o novo vértice recebe o rótulo livre "A", pois "A" foi renomeado) e Conectar cria B—C; (20) a navegação entre abas funciona e o Laboratório volta com o mesmo grafo. **Defeitos reais achados e corrigidos no aparelho** (o Jest não os via):
+a folha cortada pelo `maxHeight` percentual e o toque capturado pelo `ScrollView` da tela com o teclado aberto (acima). A primeira abertura do Expo Go depois do boot do emulador mostrou uma vez uma tela vermelha ("runtime not ready: Cannot read property 'EventEmitter' of undefined", antes de qualquer tela do app); reabrir resolveu e não reapareceu nas aberturas seguintes (mais de cinco) (**transitório, não investigado a fundo**).
+**Não verificado:** TalkBack e qualquer leitor de tela, iOS, aparelho físico, pinça, arrasto e multitoque (fora do incremento), outras larguras (só Jest), rotação, escala de fonte, o comportamento do `Modal` em outras versões do Android, e desempenho com muitos vértices.
+
+**Testes do 3.8** (249 novos; total do projeto **2390**, 46 suítes). Núcleo (projeto `editor-core`, 143): `core/selection.test.ts` (31: vértice, aresta, fundo, bordas de 24 dp e 12 dp, vértices a 30 dp com desempate estável pela ordem de inserção, arestas que se cruzam, arcos opostos, câmera `{40, −30, 2}` e escalas 0,25, 1 e 4,
+opções do hit-testing, entradas inválidas, imutabilidade, 500 toques com o `hitTest` como oráculo e o texto de estado), `core/weight-input.test.ts` (66: a gramática inteira, os valores do contrato, `-0`, vazio × `0`, textos recusados, fora da faixa, extremos finitos, 5000 textos aleatórios que nunca lançam e a ida e volta de 2000 pesos),
+`core/properties.test.ts` (24: descrição, título, rascunho, Salvar rótulo e peso contra o `applyAction`, Unicode e limite de 64 pontos de código, salvar o mesmo valor, nomes acessíveis) e `core/deletion.test.ts` (22: vértice isolado, com uma e com várias arestas, entradas e saídas do orientado, a contagem conferida contra o que o núcleo realmente remove em 200 grafos aleatórios,
+as mensagens, a identidade do alvo, um passo de histórico, desfazer e refazer, ids). Interface (projeto `app`): `properties-sheet.test.tsx` (53: rascunho, Salvar, erros em português, `0` × sem peso, Remover peso, confirmação, identidade, Voltar, temas e a altura máxima numérica), `lab-screen-select.test.tsx` (33: o fluxo de ponta a ponta com o gesto simulado, destaque,
+histórico, câmera, canvas, modos, sessão, temas e a posição da folha fora do `ScrollView`), e mais `editor-controls.test.tsx` (+7), `svg-graph-renderer.test.tsx` (+11) e `editor-store.test.ts` (+2). Três testes que diziam "Selecionar não faz nada" foram atualizados para o novo comportamento. **Mutação dirigida:** 90 mutações (46 do núcleo, 12 da tela, 3 da store, 13 da folha, 7 dos controles e 9 do renderizador), com os 10 arquivos de produção restaurados
+byte a byte. Foram detectadas **90**, 5 só depois de reforçar os testes: as opções de hit-testing nunca chegavam à seleção; o "do/da" de `propertiesGenitive` só era conferido na tela, não no núcleo; a identidade da ARESTA na confirmação de exclusão; e o meu teste de sessão trocava os dois reinícios da folha (Novo grafo e Exemplo), então um cobria o outro (e o pedido velho reabriria a folha sobre o
+vértice `v1` do exemplo). Nenhuma equivalente. Cobrem: id de seleção incorreto, toque no fundo mantendo a seleção, seleção entrando no histórico, peso zero confundido com ausência, vírgula decimal, `parseFloat` permissivo, `-0`, `1e-400` como zero enganoso, cancelar salvando, salvar inválido, exclusão sem confirmação, contagem sem entradas ou sem saídas, exclusão em dois passos, desfazer sem restaurar a posição,
+seleção permanecendo após a remoção, folha dentro da `Screen`, linha de estado antes do canvas, modos Adicionar e Conectar afetados e halo maior que a tolerância de toque. As baterias de mutação do domínio e do núcleo anteriores (3.3, 3.4, 3.7) não foram repetidas.
+
+**Limitações conhecidas.** A folha só abre pelos botões Editar e Excluir (não há toque longo); o rótulo do vértice no círculo é truncado (3.5) e o completo só aparece no texto de estado e na folha; salvar o mesmo valor fecha a folha sem avisar que nada mudou; a aresta criada no Conectar continua sem peso até o aluno defini-lo aqui; o texto de estado pode ocupar várias linhas com rótulos longos (empurra só o que está abaixo do canvas);
+a excluir pergunta sempre, mesmo para um vértice isolado; não há exclusão em lote nem seleção múltipla; a mensagem de erro de dentro da folha e a instrução não foram validadas com leitor de tela; "Novo grafo" ainda substitui o grafo atual sem confirmação (3.6); a folha não foi testada com a escala de fonte do sistema maior.
+
+
 ### Procedimento de teste em Android
 
 1. Subir o emulador: `& "$env:ANDROID_HOME\emulator\emulator.exe" -avd Pixel_6` (ou pelo Android Studio) e esperar o boot.
@@ -1605,7 +1702,9 @@ pode crescer (não testado).
    `CI=1` **não observa arquivos**: reinicie-o para ver o código novo.
 7. Para o modo Conectar, compare a posição de cada vértice criado com o ponto tocado (o deslocamento do canvas só aparece assim), faça os toques A e B e confira a aresta, e use `adb shell input swipe`
    (200 ms) começando em um vértice: um deslize não pode escolher a origem nem criar aresta.
-8. Encerrar: `adb emu kill` e parar o Metro.
+8. Para a folha de propriedades: abra-a, toque no campo (o teclado aparece) e toque em **Salvar uma única vez** com ele aberto: tem de salvar e fechar (o toque capturado por um `ScrollView` ancestral só se manifesta assim). Confira os limites dos botões com `adb shell uiautomator dump`
+   (o último botão precisa terminar acima da barra do sistema) e digite acentos com a pressão longa do teclado e `adb shell input motionevent DOWN/MOVE/UP` (o `adb shell input text` não digita "í"). O Metro com `CI=1` não observa arquivos; para ver mudanças de código sem reiniciar, rode `npx expo start` sem `CI`.
+9. Encerrar: `adb emu kill` e parar o Metro.
 
 ### Limitações desta etapa
 
@@ -1787,6 +1886,9 @@ descartada: o repositório não tem nenhum editor nem tela falsa.
   `applyAction`, 500 sequências aleatórias com sementes fixas, texto de estado), `editor-store-connect.test.ts` (30), `lab-screen-connect.test.tsx` (27, o fluxo de ponta a ponta com o gesto simulado),
   `editor-controls.test.tsx` (+9) e `svg-graph-renderer.test.tsx` (+9). **64 mutações dirigidas, 63 detectadas** (2 só depois de reforçar os testes: uma asserção de ordem no layout que era vazia e as
   opções de hit-testing) e 1 equivalente. A quebra de linha real da legenda do Conectar, que deslocava o canvas, só apareceu no emulador. Detalhes em "Modo Conectar".
+- **Seleção, propriedades e exclusão do 3.8** (249 testes novos; total **2390**). `core/selection.test.ts` (31), `core/weight-input.test.ts` (66), `core/properties.test.ts` (24) e `core/deletion.test.ts` (22) no projeto `editor-core`; `properties-sheet.test.tsx` (53) e
+  `lab-screen-select.test.tsx` (33, o fluxo de ponta a ponta com o gesto simulado) no projeto `app`; mais `editor-controls`, `svg-graph-renderer` e `editor-store`. **90 mutações dirigidas, 90 detectadas** (5 só depois de reforçar os testes), nenhuma equivalente. O que o Jest não vê (a folha cortada no Android e o
+  toque capturado pelo `ScrollView` com o teclado aberto) só apareceu no emulador, e um teste estrutural agora o guarda. Detalhes em "Seleção, propriedades e exclusão".
 - **Ambiente de testes das bibliotecas do editor** (`graph-editor/native-stack.test.tsx`, projeto `app`): SVG
   (`Svg`, `G`, `Line`, `Circle`, `Text`) renderiza com suas propriedades; toque e arrasto simulados por
   `createGestureController` atualizam a tela; um componente com valor compartilhado e estilo animado monta. Não testa o

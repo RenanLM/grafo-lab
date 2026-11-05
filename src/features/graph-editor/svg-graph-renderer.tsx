@@ -23,6 +23,11 @@ import type { GraphRendererProps } from './graph-renderer';
 // contorno mais grosso. É só desenho: a cena não é refeita (nenhuma geometria muda) e este arquivo só procura o vértice na cena,
 // O(V). O destaque não depende só de cor: o que o distingue é a FORMA (anel tracejado, contorno de 4 dp contra 2 dp).
 //
+// Seleção (3.8): `selection` destaca o vértice ou a aresta selecionados. Vértice: anel SÓLIDO em volta (o anel da origem do Conectar é tracejado) e contorno de
+// 4 dp. Aresta: traço de 4 dp (contra 2 dp) no token `primary`, um halo largo e translúcido por baixo e a ponta da seta com contorno (maior). A diferença é de FORMA
+// (sólido x tracejado, espessura, halo), não só de cor. O halo (10 dp) é mais estreito que a tolerância de toque da aresta (12 dp de cada lado): o que se vê
+// nunca promete uma área de toque maior que a do hit-testing. É só desenho: nenhuma geometria muda e este arquivo só procura o elemento na cena, O(V + E).
+//
 // Custo: Θ(V + E) elementos SVG (um círculo e um texto por vértice; um traço por aresta, mais seta e peso quando há; um anel quando
 // há destaque). Renderizar de novo percorre a cena inteira; sem arrasto, a cena não muda a cada quadro.
 //
@@ -35,17 +40,25 @@ const SOURCE_VERTEX_STROKE_WIDTH = 4;
 const SOURCE_RING_GAP = 7;
 const SOURCE_RING_STROKE_WIDTH = 3;
 const SOURCE_RING_DASH = '6 4';
+const SELECTION_RING_GAP = 6;
+const SELECTION_RING_STROKE_WIDTH = 3;
+const SELECTED_EDGE_STROKE_WIDTH = 4;
+const SELECTED_EDGE_HALO_WIDTH = 10;
+const SELECTED_EDGE_HALO_OPACITY = 0.3;
+const SELECTED_ARROW_OUTLINE_WIDTH = 3;
 const WEIGHT_BOX_RADIUS = 4;
 const BASELINE_OFFSET = 0.35;
 
 const pointsOf = (...points: readonly { x: number; y: number }[]): string => points.map((point) => `${point.x},${point.y}`).join(' ');
 
-export function SvgGraphRenderer({ scene, width, height, highlightedVertexId }: GraphRendererProps) {
+export function SvgGraphRenderer({ scene, width, height, highlightedVertexId, selection }: GraphRendererProps) {
   const { colors } = useTheme();
   const { labelFontSize } = scene;
   const edgeColor = colors.textSecondary;
   const highlighted =
     highlightedVertexId === undefined ? undefined : scene.vertices.find((vertex) => vertex.id === highlightedVertexId);
+  const selectedVertex = selection?.type === 'vertex' ? scene.vertices.find((vertex) => vertex.id === selection.vertexId) : undefined;
+  const selectedEdge = selection?.type === 'edge' ? scene.edges.find((edge) => edge.id === selection.edgeId) : undefined;
 
   return (
     <View
@@ -60,6 +73,33 @@ export function SvgGraphRenderer({ scene, width, height, highlightedVertexId }: 
         height={height}
         viewBox={`0 0 ${width} ${height}`}
         importantForAccessibility="no-hide-descendants">
+        {selectedEdge === undefined ? null : (
+          <G>
+            {selectedEdge.path.kind === 'line' ? (
+              <Line
+                testID={`edge-selection-${selectedEdge.id}`}
+                x1={selectedEdge.path.from.x}
+                y1={selectedEdge.path.from.y}
+                x2={selectedEdge.path.to.x}
+                y2={selectedEdge.path.to.y}
+                stroke={colors.primary}
+                strokeOpacity={SELECTED_EDGE_HALO_OPACITY}
+                strokeWidth={SELECTED_EDGE_HALO_WIDTH}
+                strokeLinecap="round"
+              />
+            ) : (
+              <Path
+                testID={`edge-selection-${selectedEdge.id}`}
+                d={`M ${selectedEdge.path.from.x} ${selectedEdge.path.from.y} Q ${selectedEdge.path.control.x} ${selectedEdge.path.control.y} ${selectedEdge.path.to.x} ${selectedEdge.path.to.y}`}
+                fill="none"
+                stroke={colors.primary}
+                strokeOpacity={SELECTED_EDGE_HALO_OPACITY}
+                strokeWidth={SELECTED_EDGE_HALO_WIDTH}
+                strokeLinecap="round"
+              />
+            )}
+          </G>
+        )}
         <G>
           {scene.edges.map((edge) =>
             edge.path.kind === 'line' ? (
@@ -70,8 +110,8 @@ export function SvgGraphRenderer({ scene, width, height, highlightedVertexId }: 
                 y1={edge.path.from.y}
                 x2={edge.path.to.x}
                 y2={edge.path.to.y}
-                stroke={edgeColor}
-                strokeWidth={EDGE_STROKE_WIDTH}
+                stroke={edge.id === selectedEdge?.id ? colors.primary : edgeColor}
+                strokeWidth={edge.id === selectedEdge?.id ? SELECTED_EDGE_STROKE_WIDTH : EDGE_STROKE_WIDTH}
               />
             ) : (
               <Path
@@ -79,8 +119,8 @@ export function SvgGraphRenderer({ scene, width, height, highlightedVertexId }: 
                 testID={`edge-stroke-${edge.id}`}
                 d={`M ${edge.path.from.x} ${edge.path.from.y} Q ${edge.path.control.x} ${edge.path.control.y} ${edge.path.to.x} ${edge.path.to.y}`}
                 fill="none"
-                stroke={edgeColor}
-                strokeWidth={EDGE_STROKE_WIDTH}
+                stroke={edge.id === selectedEdge?.id ? colors.primary : edgeColor}
+                strokeWidth={edge.id === selectedEdge?.id ? SELECTED_EDGE_STROKE_WIDTH : EDGE_STROKE_WIDTH}
               />
             ),
           )}
@@ -92,7 +132,10 @@ export function SvgGraphRenderer({ scene, width, height, highlightedVertexId }: 
                 key={edge.id}
                 testID={`edge-arrow-${edge.id}`}
                 points={pointsOf(edge.arrow.tip, edge.arrow.left, edge.arrow.right)}
-                fill={edgeColor}
+                fill={edge.id === selectedEdge?.id ? colors.primary : edgeColor}
+                stroke={edge.id === selectedEdge?.id ? colors.primary : undefined}
+                strokeWidth={edge.id === selectedEdge?.id ? SELECTED_ARROW_OUTLINE_WIDTH : undefined}
+                strokeLinejoin="round"
               />
             ),
           )}
@@ -125,6 +168,19 @@ export function SvgGraphRenderer({ scene, width, height, highlightedVertexId }: 
             ),
           )}
         </G>
+        {selectedVertex === undefined ? null : (
+          <G>
+            <Circle
+              testID={`vertex-selection-ring-${selectedVertex.id}`}
+              cx={selectedVertex.center.x}
+              cy={selectedVertex.center.y}
+              r={selectedVertex.radius + SELECTION_RING_GAP}
+              fill="none"
+              stroke={colors.text}
+              strokeWidth={SELECTION_RING_STROKE_WIDTH}
+            />
+          </G>
+        )}
         {highlighted === undefined ? null : (
           <G>
             <Circle
@@ -149,7 +205,7 @@ export function SvgGraphRenderer({ scene, width, height, highlightedVertexId }: 
               r={vertex.radius}
               fill={colors.primaryMuted}
               stroke={colors.primary}
-              strokeWidth={vertex.id === highlighted?.id ? SOURCE_VERTEX_STROKE_WIDTH : VERTEX_STROKE_WIDTH}
+              strokeWidth={vertex.id === highlighted?.id || vertex.id === selectedVertex?.id ? SOURCE_VERTEX_STROKE_WIDTH : VERTEX_STROKE_WIDTH}
             />
           ))}
         </G>

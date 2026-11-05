@@ -82,11 +82,12 @@ describe('LabScreen: estado inicial', () => {
 
     expect(screen.getByText('Laboratório')).toBeOnTheScreen();
     expect(screen.getByText('Nenhum grafo carregado')).toBeOnTheScreen();
-    expect(screen.getByText(/Comece um grafo vazio, adicione vértices tocando no quadro e conecte-os, ou carregue o exemplo\./)).toBeOnTheScreen();
+    expect(screen.getByText(/Comece um grafo vazio, adicione vértices tocando no quadro, conecte-os e edite, ou carregue o exemplo./)).toBeOnTheScreen();
     expect(screen.queryByText(/ainda não está disponível/)).toBeNull(); // conectar já existe: nada de "em breve" no texto da tela
     expect(screen.queryByText(/chega em breve/)).toBeNull();
     expect(screen.getByText('O que ainda vem aqui')).toBeOnTheScreen();
-    expect(screen.getByText(/Selecionar, editar e excluir vértices e arestas\./)).toBeOnTheScreen();
+    expect(screen.getByText(/Arrastar vértices e ampliar ou deslocar o quadro com gestos./)).toBeOnTheScreen();
+    expect(screen.queryByText(/Selecionar, editar e excluir vértices e arestas/)).toBeNull(); // já existe: não está mais em "o que ainda vem"
     expect(screen.queryByText(/Conectar vértices com arestas, tocando na tela/)).toBeNull();
     expect(screen.queryByTestId('canvas-area')).toBeNull();
     expect(screen.queryByTestId('graph-canvas', HIDDEN)).toBeNull();
