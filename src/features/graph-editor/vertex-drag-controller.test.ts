@@ -4,6 +4,7 @@ import {
   NEUTRAL_CAMERA,
   buildGraphScene,
   emptyLayout,
+  gestureOwnerAt,
   placeVertex,
   positionOf,
   type Camera,
@@ -35,6 +36,8 @@ type Setup = {
   readonly storeUpdates: () => number;
   readonly sceneOf: () => GraphScene;
   readonly context: (patch?: Partial<DragContext>) => DragContext;
+  /** O dedo desce em `at`: o orquestrador (3.10) decide o dono pelo hit-test do núcleo; se é o vértice, a sessão é armada (um gesto novo descarta a anterior). */
+  readonly begin: (at: Point) => void;
 };
 
 /** v1 (60, 60), v2 (200, 60), v3 (130, 200); arestas v1—v2 (peso 2,5) e v1—v3. Câmera neutra, modo Selecionar. */
@@ -56,9 +59,7 @@ function mount({ mode = 'select' as EditorMode, directed = false, camera = NEUTR
     return buildGraphScene(editor.graph, editor.layout, camera, { viewport: VIEWPORT })!;
   };
   const context = (patch: Partial<DragContext> = {}): DragContext => ({
-    camera,
     viewport: VIEWPORT,
-    scene: sceneOf(),
     enabled: true,
     onDraggingChange: dragging,
     ...patch,
@@ -69,13 +70,18 @@ function mount({ mode = 'select' as EditorMode, directed = false, camera = NEUTR
   store.subscribe(() => {
     updates++;
   });
-  return { store, controller, dragging, camera, storeUpdates: () => updates, sceneOf, context };
+  const begin = (at: Point): void => {
+    controller.handlers.finalize(); // um gesto novo começa limpo
+    const owner = gestureOwnerAt(store.getState().editor, camera, at, VIEWPORT);
+    if (owner.kind === 'vertex') controller.arm(owner.session);
+  };
+  return { store, controller, dragging, camera, storeUpdates: () => updates, sceneOf, context, begin };
 }
 
 /** O dedo desce em `at`, anda até `to` e o Gesture Handler ativa o arrasto (o que o detector faria). Devolve se o controlador pediu a ativação. */
 function startAndActivate(setup: Setup, at: Point, to: Point): boolean {
   const { handlers } = setup.controller;
-  handlers.begin(at);
+  setup.begin(at);
   const requested = handlers.touchMove(to);
   if (requested) handlers.activated();
   return requested;
@@ -85,8 +91,8 @@ const positionOfVertex = (store: EditorStore, id: string) => positionOf(store.ge
 
 describe('começo do arrasto', () => {
   it('o dedo desce sobre um vértice: a sessão é armada, e o limiar de 10 dp decide o pedido de ativação', () => {
-    const { controller } = mount();
-    controller.handlers.begin(point(62, 58));
+    const { controller, begin } = mount();
+    begin(point(62, 58));
 
     expect(controller.handlers.touchMove(point(62 + 9, 58))).toBe(false);
     expect(controller.handlers.touchMove(point(62 + 10, 58))).toBe(true);
@@ -94,41 +100,39 @@ describe('começo do arrasto', () => {
   });
 
   it('o dedo desce no fundo: nada é armado, e nenhum movimento pede a ativação (a página rola)', () => {
-    const { controller } = mount();
-    controller.handlers.begin(point(320, 280));
+    const { controller, begin } = mount();
+    begin(point(320, 280));
 
     expect(controller.handlers.touchMove(point(320, 100))).toBe(false);
     expect(controller.handlers.touchMove(point(100, 100))).toBe(false);
   });
 
   it('o dedo desce sobre uma aresta: nada é armado (o ponto médio de v1—v2 fica longe dos dois vértices)', () => {
-    const { controller } = mount();
-    controller.handlers.begin(point(130, 60));
+    const { controller, begin } = mount();
+    begin(point(130, 60));
 
     expect(controller.handlers.touchMove(point(130, 200))).toBe(false);
   });
 
   it.each(['add-vertex', 'connect'] as const)('no modo %s o arrasto não começa, mesmo com o dedo sobre um vértice', (mode) => {
-    const { controller } = mount({ mode });
-    controller.handlers.begin(point(60, 60));
+    const { controller, begin } = mount({ mode });
+    begin(point(60, 60));
 
     expect(controller.handlers.touchMove(point(100, 60))).toBe(false);
   });
 
-  it('contexto desabilitado (folha aberta, nenhum grafo), sem câmera ou sem área medida: nada é armado', () => {
+  it('contexto desabilitado (folha de propriedades aberta): nada é armado, mesmo com o dedo sobre um vértice', () => {
     const setup = mount();
-    for (const patch of [{ enabled: false }, { camera: undefined }, { viewport: undefined }]) {
-      setup.controller.setContext(setup.context(patch));
-      setup.controller.handlers.begin(point(60, 60));
+    setup.controller.setContext(setup.context({ enabled: false }));
+    setup.begin(point(60, 60));
 
-      expect(setup.controller.handlers.touchMove(point(100, 60))).toBe(false);
-    }
+    expect(setup.controller.handlers.touchMove(point(100, 60))).toBe(false);
   });
 
   it('um novo begin substitui a sessão anterior (o dedo desceu em outro lugar)', () => {
-    const { controller } = mount();
-    controller.handlers.begin(point(60, 60));
-    controller.handlers.begin(point(320, 280)); // fundo
+    const { controller, begin } = mount();
+    begin(point(60, 60));
+    begin(point(320, 280)); // fundo
 
     expect(controller.handlers.touchMove(point(100, 60))).toBe(false);
   });
@@ -204,7 +208,7 @@ describe('durante o arrasto: só a prévia muda', () => {
 
   it('atualizar antes de ativar, ou com deslocamento inválido, não cria prévia', () => {
     const setup = mount();
-    setup.controller.handlers.begin(point(60, 60));
+    setup.begin(point(60, 60));
     setup.controller.handlers.update(point(50, 50)); // ainda não ativou
     expect(setup.controller.getPreview()).toBeUndefined();
 
@@ -215,7 +219,7 @@ describe('durante o arrasto: só a prévia muda', () => {
 
   it('o editor mudou ENTRE descer e ativar (outro modo, ou outro grafo com os mesmos ids): o arrasto não ativa e nada é desenhado', () => {
     const mode = mount();
-    mode.controller.handlers.begin(point(60, 60));
+    mode.begin(point(60, 60));
     mode.store.getState().dispatch({ type: 'set-mode', mode: 'connect' });
     mode.controller.handlers.activated();
     mode.controller.handlers.update(point(40, 40));
@@ -225,7 +229,7 @@ describe('durante o arrasto: só a prévia muda', () => {
     expect(mode.dragging).not.toHaveBeenCalled();
 
     const reset = mount();
-    reset.controller.handlers.begin(point(60, 60));
+    reset.begin(point(60, 60));
     reset.store.getState().reset({ graph: createGraph({ id: 'g' }), mode: 'select' });
     reset.controller.handlers.activated();
 
@@ -235,7 +239,7 @@ describe('durante o arrasto: só a prévia muda', () => {
 
   it('ativar sem sessão armada (o dedo caiu no fundo) é ignorado', () => {
     const setup = mount();
-    setup.controller.handlers.begin(point(320, 280));
+    setup.begin(point(320, 280));
     setup.controller.handlers.activated();
 
     expect(setup.controller.isDragging()).toBe(false);
@@ -407,7 +411,7 @@ describe('cancelar não confirma nada', () => {
 
   it('um gesto que não chegou a ativar e termina (toque, falha): finalize descarta a sessão sem avisar ninguém', () => {
     const setup = mount();
-    setup.controller.handlers.begin(point(60, 60));
+    setup.begin(point(60, 60));
     setup.controller.handlers.finalize();
 
     expect(setup.controller.handlers.touchMove(point(100, 60))).toBe(false); // a sessão sumiu

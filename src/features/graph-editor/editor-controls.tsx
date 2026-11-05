@@ -169,6 +169,37 @@ export function SelectionStatus({ onEdit, onDelete }: { onEdit: (selection: Edit
   );
 }
 
+/**
+ * Os botões da câmera (3.10): **Centralizar** (leva o centro do grafo ao centro do quadro, mantendo o zoom) e **Ajustar ao grafo** (enquadra o grafo inteiro com margem,
+ * respeitando os limites de zoom). Ficam ABAIXO do canvas, como as linhas de estado, então nunca o deslocam; só chamam os comandos da tela (que mudam a câmera, nunca o grafo,
+ * o layout ou o histórico). `notice` é o aviso discreto de que o zoom mínimo impediu o enquadramento completo (região viva `polite`; não foi validado com TalkBack).
+ */
+export function CameraControls({ onCenter, onFit, notice }: { onCenter: () => void; onFit: () => void; notice?: string | undefined }) {
+  return (
+    <View style={styles.cameraBlock}>
+      <View style={styles.row}>
+        <ToolButton
+          testID="camera-center"
+          label="Centralizar"
+          accessibilityHint="Leva o centro do grafo ao centro do quadro, sem mudar o zoom"
+          onPress={onCenter}
+        />
+        <ToolButton
+          testID="camera-fit"
+          label="Ajustar ao grafo"
+          accessibilityHint="Enquadra o grafo inteiro no quadro, com margem"
+          onPress={onFit}
+        />
+      </View>
+      {notice === undefined ? null : (
+        <Text testID="camera-notice" color="textSecondary" accessibilityLiveRegion="polite">
+          {notice}
+        </Text>
+      )}
+    </View>
+  );
+}
+
 export function HistoryBar() {
   const canUndo = useEditorStore(selectCanUndo);
   const canRedo = useEditorStore(selectCanRedo);
@@ -208,6 +239,7 @@ const STATUS_ROW_MIN_HEIGHT = typography.label.lineHeight + spacing.md * 2 + 3;
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: spacing.sm },
+  cameraBlock: { gap: spacing.sm },
   modeRow: { minHeight: MODE_BAR_MIN_HEIGHT },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: STATUS_ROW_MIN_HEIGHT },
   statusText: { flex: 1 },

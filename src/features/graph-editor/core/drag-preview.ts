@@ -60,6 +60,8 @@ export type DragPreviewPlan = {
 /** O desenho provisório do vértice arrastado e das arestas dele, em dp de tela. */
 export type DragPreview = {
   readonly graphId: string;
+  /** A câmera com que a prévia foi calculada (a do começo do arrasto). O renderizador só a desenha enquanto a câmera viva for esta. */
+  readonly camera: Camera;
   readonly vertex: SceneVertex;
   readonly edges: readonly SceneEdge[];
   /** Quais arestas a camada estática deve deixar de desenhar (o mesmo objeto do plano). */
@@ -132,5 +134,5 @@ export function buildDragPreview(plan: DragPreviewPlan, position: Point): DragPr
     const sceneEdge = sceneEdgeFrom(geometry, edge.weight, plan.camera, plan.fontSize, plan.viewport);
     if (sceneEdge !== undefined) edges.push(sceneEdge);
   }
-  return { graphId: plan.graphId, vertex, edges, hiddenEdgeIds: plan.hiddenEdgeIds };
+  return { graphId: plan.graphId, camera: plan.camera, vertex, edges, hiddenEdgeIds: plan.hiddenEdgeIds };
 }

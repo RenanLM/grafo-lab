@@ -7,7 +7,8 @@
 //   renderizador SVG fica em `graph-editor/`) · 3.6 tradução do toque em ação (`tap.ts`) — pronto · 3.7 máquina de estados do
 //   modo Conectar (`connect.ts`, `connect-status.ts`) — pronto · 3.8 seleção por toque (`selection.ts`), conversão do texto de peso
 //   (`weight-input.ts`), propriedades e exclusão (`properties.ts`, `deletion.ts`) — pronto · 3.9 arrasto de vértice (`drag.ts`) e a
-//   prévia do arrasto (`drag-preview.ts`) — pronto.
+//   prévia do arrasto (`drag-preview.ts`) — pronto · 3.10 contas de pan, pinça e enquadramento (`camera-gesture.ts`) e a decisão de
+//   quem é o dono do deslize (`gesture-start.ts`) — pronto (a câmera viva fica em `graph-editor/camera-store.ts`, fora do núcleo).
 // Importa apenas o domínio (`@/domain/graph`) e a si mesmo. O ESLint barra o resto e `boundary.test.ts` confere também
 // os imports relativos que saiam desta pasta. A interface (`src/features/graph-editor/*.tsx`) e a futura store
 // Zustand dependem deste núcleo, nunca o contrário.
@@ -114,6 +115,8 @@ export {
   dragCommitAction,
   dragFinalPosition,
   dragPreviewPosition,
+  dragSessionAt,
+  fingerMoved,
   finishDrag,
   isDragSessionValid,
   startDrag,
@@ -123,6 +126,20 @@ export {
   type DragSession,
   type MoveVertexAction,
 } from './drag';
+
+// Câmera por gesto e por comando (3.10): pan e pinça a partir de uma âncora, Centralizar, Ajustar ao grafo e redimensionamento, compondo as funções do 3.1
+export {
+  cameraForResize,
+  centerCamera,
+  fitGraphCamera,
+  panFromAnchor,
+  pinchFromAnchor,
+  sameCamera,
+  type FitResult,
+} from './camera-gesture';
+
+// Dono do deslize de um dedo (3.10): arrastar o vértice, mover a câmera ou nada, com UM hit-test
+export { gestureOwnerAt, type GestureOwner } from './gesture-start';
 
 // Prévia do arrasto (3.9): o desenho provisório do vértice arrastado e das arestas dele, com as mesmas fórmulas da cena definitiva
 export {

@@ -1,36 +1,34 @@
 import {
   buildDragPreview,
+  buildGraphScene,
   dragActivated,
   dragPreviewPosition,
   finishDrag,
   isDragSessionValid,
   planDragPreview,
-  startDrag,
-  type Camera,
   type DragEnd,
   type DragPreview,
   type DragPreviewPlan,
   type DragSession,
-  type GraphScene,
   type Point,
   type Viewport,
 } from './core';
-import type { CanvasDragHandlers } from './canvas-gesture-detector';
 import type { EditorStore } from './editor-store';
 
-// Controlador do arrasto de vértice (Fase 3, incremento 3.9): a ponte entre o detector de gestos (`CanvasDragHandlers`), o núcleo puro (`core/drag.ts`
+// Controlador do arrasto de vértice (Fase 3, incremento 3.9): a ponte entre o orquestrador dos gestos do canvas (`canvas-gesture-controller.ts`), o núcleo puro (`core/drag.ts`
 // e `core/drag-preview.ts`) e a store. TypeScript sem React: recebe a store por parâmetro e expõe `subscribe` e `getPreview` no formato de
 // `useSyncExternalStore`. Quem decide o que é um arrasto é o núcleo; aqui só se guarda o que é do GESTO em andamento e se encaminha.
 //
 // O que existe durante um gesto (nada disto entra na store, no grafo, no layout, no histórico nem no JSON)
-// - `armed`: a sessão que `startDrag` devolveu quando o dedo desceu sobre um vértice (hit-testing UMA vez). Ainda não é arrasto: pode virar toque.
+// - `armed`: a sessão que `gestureOwnerAt` devolveu quando o dedo desceu sobre um vértice no modo Selecionar (hit-testing UMA vez, feito pelo orquestrador, 3.10; no 3.9 era o
+//   próprio controlador que o fazia, com `startDrag`). Ainda não é arrasto: pode virar toque.
 // - `active`: depois que o Gesture Handler ativou o arrasto. Guarda a sessão, o plano da prévia (as arestas incidentes, calculadas uma vez) e o último
 //   deslocamento visto.
 // - `preview`: o desenho provisório (vértice + arestas incidentes) que o renderizador mostra. Muda a cada atualização do dedo e é a ÚNICA coisa que
 //   muda: o grafo e o layout continuam como estavam até soltar.
 //
 // Fluxo
-// 1. `begin`: o dedo desceu. Hit-testing do núcleo (`startDrag`); se acertou um vértice (e o modo é Selecionar, e nada mais tem o toque), arma.
+// 1. `arm(sessão)`: o dedo desceu sobre um vértice no modo Selecionar e o orquestrador decidiu que o dono do gesto é o arrasto de vértice; arma (se o contexto está habilitado).
 // 2. `touchMove`: antes de ativar, diz se o dedo já andou o limiar (`dragActivated`); o detector então pede a ativação ao Gesture Handler.
 // 3. `activated`: confere que a sessão ainda vale e monta o plano da prévia (Θ(V + E), uma vez). A partir daqui a store é OBSERVADA: se o editor deixar
 //    de ser o da sessão (modo trocado, outro grafo, exemplo, desfazer, vértice removido), o arrasto é descartado na hora, sem esperar o dedo.
@@ -44,22 +42,37 @@ import type { EditorStore } from './editor-store';
 //    deslocamento do evento de fim não for finito.
 //
 // `onDraggingChange(true)` é chamado quando o arrasto ativa e `(false)` quando termina (soltar, cancelar, descartar, desmontar), para quem precisa
-// reagir (por exemplo, reservar a rolagem da página). Complexidade: `begin` é o `startDrag` (Θ(V) a Θ(V + E·N)); `activated` Θ(V + E); `update` Θ(grau).
+// reagir (por exemplo, reservar a rolagem da página). Complexidade: `arm` O(1); `activated` Θ(V + E); `update` Θ(grau).
 
 export type DragContext = {
-  readonly camera: Camera | undefined;
   /** A área do canvas em dp; `undefined` enquanto não foi medida. */
   readonly viewport: Viewport | undefined;
-  /** A cena que está na tela (de onde a prévia tira rótulo e raio do vértice). */
-  readonly scene: GraphScene | undefined;
   /** Falso quando outra coisa tem o toque (a folha de propriedades aberta, nenhum grafo): nenhum arrasto começa e o ativo é descartado. */
   readonly enabled: boolean;
   readonly onDraggingChange?: (dragging: boolean) => void;
 };
 
+/** O que o orquestrador chama durante um arrasto de vértice (o `begin` é o `arm`, porque quem decide o dono do gesto é o orquestrador). Pontos e deslocamentos em dp locais ao canvas. */
+export type VertexDragHandlers = {
+  /** O dedo se moveu para `point` antes de o arrasto ativar: `true` pede ao Gesture Handler que ative o arrasto agora. */
+  touchMove(point: Point): boolean;
+  /** O Gesture Handler ativou o arrasto (depois do pedido). */
+  activated(): void;
+  /** Deslocamento do dedo desde que desceu, em dp. */
+  update(translation: Point): void;
+  /** O dedo subiu com o arrasto ativo: confirma. `translation` é o deslocamento final. */
+  release(translation: Point): void;
+  /** O arrasto ativo foi cancelado (pelo sistema, por um segundo dedo ou por perder o toque): restaura. */
+  cancel(): void;
+  /** O gesto terminou de qualquer jeito: descarta o que sobrou. Pode ser chamado várias vezes. */
+  finalize(): void;
+};
+
 export type VertexDragController = {
-  /** Os callbacks do detector de gestos. Identidade estável durante toda a vida do controlador. */
-  readonly handlers: CanvasDragHandlers;
+  /** Os callbacks do arrasto. Identidade estável durante toda a vida do controlador. */
+  readonly handlers: VertexDragHandlers;
+  /** Arma a sessão decidida pelo orquestrador (descarta qualquer sessão anterior). Sem efeito se o contexto está desabilitado (folha de propriedades aberta). */
+  arm(session: DragSession): void;
   /** A prévia atual, ou `undefined`. A MESMA referência enquanto nada muda (formato de `useSyncExternalStore`). */
   getPreview(): DragPreview | undefined;
   /** Avisa quando a prévia muda. Devolve a função que cancela a assinatura. */
@@ -81,7 +94,7 @@ type ActiveDrag = {
 };
 
 export function createVertexDragController(store: EditorStore): VertexDragController {
-  let context: DragContext = { camera: undefined, viewport: undefined, scene: undefined, enabled: false };
+  let context: DragContext = { viewport: undefined, enabled: false };
   let armed: DragSession | undefined;
   let active: ActiveDrag | undefined;
   let preview: DragPreview | undefined;
@@ -122,29 +135,22 @@ export function createVertexDragController(store: EditorStore): VertexDragContro
     clear();
   }
 
-  const handlers: CanvasDragHandlers = {
-    begin(point) {
-      clear();
-      const { camera, viewport, enabled } = context;
-      if (!enabled || camera === undefined || viewport === undefined) return;
-      armed = startDrag(store.getState().editor, camera, point, viewport);
-    },
-
+  const handlers: VertexDragHandlers = {
     touchMove(point) {
       return armed !== undefined && active === undefined && dragActivated(armed, point);
     },
 
     activated() {
       const session = armed;
-      const { scene, viewport } = context;
-      if (session === undefined || scene === undefined) {
+      const { viewport } = context;
+      if (session === undefined || viewport === undefined) {
         clear();
         return;
       }
       const { editor } = store.getState();
-      const plan = isDragSessionValid(session, editor)
-        ? planDragPreview(editor.graph, editor.layout, scene, session.camera, session.vertexId, viewport === undefined ? {} : { viewport })
-        : undefined;
+      // A cena de ONDE a prévia tira o rótulo e o raio do vértice é montada aqui, com a câmera do começo do gesto (Θ(V + E), uma vez por arrasto): a câmera viva é do armazém, e a tela não precisa guardar uma cena para o controlador.
+      const scene = isDragSessionValid(session, editor) ? buildGraphScene(editor.graph, editor.layout, session.camera, { viewport }) : undefined;
+      const plan = scene === undefined ? undefined : planDragPreview(editor.graph, editor.layout, scene, session.camera, session.vertexId, { viewport });
       if (plan === undefined) {
         clear();
         return;
@@ -186,6 +192,10 @@ export function createVertexDragController(store: EditorStore): VertexDragContro
 
   return {
     handlers,
+    arm: (session) => {
+      clear();
+      if (context.enabled) armed = session;
+    },
     getPreview: () => preview,
     subscribe: (listener) => {
       listeners.add(listener);

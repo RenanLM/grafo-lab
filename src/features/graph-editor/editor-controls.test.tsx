@@ -6,7 +6,7 @@ import { colors, minTouchTarget } from '@/theme';
 
 import { NEUTRAL_CAMERA, positionOf, type EditorMode } from './core';
 import { type EditorStore } from './editor-store';
-import { ConnectStatus, HistoryBar, ModeBar, SelectionStatus } from './editor-controls';
+import { CameraControls, ConnectStatus, HistoryBar, ModeBar, SelectionStatus } from './editor-controls';
 import { EditorStoreProvider, useEditorStoreApi } from './editor-store-provider';
 
 // Barra de modos, linha de estado do modo Conectar e barra de histórico (ver editor-controls.tsx): só despacham ações do núcleo (ou
@@ -453,5 +453,39 @@ describe('SelectionStatus', () => {
     expect(style(screen.getByTestId('selection-status-row')).minHeight).toBe(alturaDoBotao);
     await select(store, { type: 'vertex', vertexId: 'v1' });
     expect(style(screen.getByTestId('selection-status-row')).minHeight).toBe(alturaDoBotao);
+  });
+});
+
+describe('CameraControls (3.10): Centralizar e Ajustar ao grafo', () => {
+  it('mostra os dois botões com rótulo e dica em português e chama o comando certo, uma vez por toque', async () => {
+    const onCenter = jest.fn();
+    const onFit = jest.fn();
+    await render(<CameraControls onCenter={onCenter} onFit={onFit} />);
+    const user = userEvent.setup();
+    await user.press(screen.getByRole('button', { name: 'Centralizar' }));
+    await user.press(screen.getByRole('button', { name: 'Ajustar ao grafo' }));
+    await user.press(screen.getByRole('button', { name: 'Ajustar ao grafo' }));
+
+    expect(onCenter).toHaveBeenCalledTimes(1);
+    expect(onFit).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('button', { name: 'Centralizar' }).props.accessibilityHint).toBe('Leva o centro do grafo ao centro do quadro, sem mudar o zoom');
+    expect(screen.getByRole('button', { name: 'Ajustar ao grafo' }).props.accessibilityHint).toBe('Enquadra o grafo inteiro no quadro, com margem');
+  });
+
+  it('os dois têm alvo de toque de pelo menos 48 dp', async () => {
+    await render(<CameraControls onCenter={jest.fn()} onFit={jest.fn()} />);
+
+    for (const id of ['camera-center', 'camera-fit']) {
+      expect(StyleSheet.flatten(screen.getByTestId(id).props.style).minHeight).toBeGreaterThanOrEqual(minTouchTarget);
+    }
+  });
+
+  it('o aviso só existe quando é passado, e é uma região viva discreta (polite)', async () => {
+    const { rerender } = await render(<CameraControls onCenter={jest.fn()} onFit={jest.fn()} />);
+    expect(screen.queryByTestId('camera-notice')).toBeNull();
+
+    await rerender(<CameraControls onCenter={jest.fn()} onFit={jest.fn()} notice="O zoom mínimo não basta." />);
+    expect(screen.getByTestId('camera-notice')).toHaveTextContent('O zoom mínimo não basta.');
+    expect(screen.getByTestId('camera-notice').props.accessibilityLiveRegion).toBe('polite');
   });
 });

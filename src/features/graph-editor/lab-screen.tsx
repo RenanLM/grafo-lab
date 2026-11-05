@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 
 import { Badge } from '@/components/badge';
@@ -10,13 +10,18 @@ import { Text } from '@/components/text';
 import { createGraph, type Graph } from '@/domain/graph';
 import { radius, spacing, useTheme } from '@/theme';
 
+import { useSettledCamera } from './camera-hooks';
+import { createCameraStore } from './camera-store';
 import { CanvasGestureDetector } from './canvas-gesture-detector';
 import { canvasSize } from './canvas-size';
 import {
   NEUTRAL_CAMERA,
   buildGraphScene,
+  cameraForResize,
+  centerCamera,
   circularLayout,
   fitCameraToGraph,
+  fitGraphCamera,
   graphErrorMessage,
   tapToEditorAction,
   tapToSelectionAction,
@@ -24,14 +29,16 @@ import {
   type CreateEditorStateOptions,
   type GraphLayout,
   type Point,
+  type Viewport,
 } from './core';
-import { ConnectStatus, HistoryBar, ModeBar, SelectionStatus } from './editor-controls';
+import { CameraControls, ConnectStatus, HistoryBar, ModeBar, SelectionStatus } from './editor-controls';
 import { selectConnectSource, selectGraph, selectLayout, selectMode, selectSelection } from './editor-store';
 import { EditorStoreProvider, useEditorStore, useEditorStoreApi } from './editor-store-provider';
 import { buildExampleGraph } from './example-graph';
 import { buildNewGraph } from './new-graph';
 import { PropertiesSheet, type SheetRequest } from './properties-sheet';
-import { LiveGraphRenderer, useVertexDragController } from './vertex-drag';
+import { useCanvasGestures } from './canvas-gestures';
+import { LiveGraphRenderer } from './vertex-drag';
 
 // Tela do Laboratório (Fase 3, incrementos 3.6 a 3.9). O aluno começa um grafo vazio (orientado ou não) ou carrega o exemplo, escolhe o
 // modo e toca no quadro: em Adicionar vértice cria vértices; em Conectar toca em um vértice (a ORIGEM, que ganha destaque) e em outro
@@ -50,12 +57,15 @@ import { LiveGraphRenderer, useVertexDragController } from './vertex-drag';
 // `LiveGraphRenderer`, que assina o controlador, desenha a prévia; ao soltar entra UM `move-vertex`. Começar outro grafo, carregar o exemplo e
 // desmontar descartam o arrasto sem confirmar.
 //
-// CÂMERA. Ela NÃO está na store e NÃO é recalculada a cada edição: o modo da câmera é decidido só ao começar uma sessão.
+// CÂMERA (3.10). Ela é estado da SESSÃO VISUAL, com uma única fonte de verdade: o `CameraStore` criado aqui (`camera-store.ts`). NÃO está na store do editor, no grafo, no layout, no JSON nem no
+// histórico: mover, ampliar, centralizar e ajustar nunca criam passo de desfazer. Quem desenha (`LiveGraphRenderer`), quem faz o hit-testing (toque e arrasto) e quem calcula os gestos leem DELE.
+// A tela assina só a câmera ASSENTADA (muda ao começar uma sessão, num comando ou no fim de um gesto), então um pan ou uma pinça não re-renderiza a tela a cada quadro.
 // - grafo novo: câmera NEUTRA (a origem do mundo no canto do quadro; cada toque cria o vértice no mesmo ponto em dp);
-// - exemplo: câmera ENQUADRADA uma vez, a partir do grafo carregado (`fitCameraToGraph` sobre uma cópia do que foi carregado);
-// - adicionar vértice, desfazer, refazer e trocar de modo NÃO mudam a câmera (ela não depende do grafo atual);
-// - redimensionar ou girar: com a câmera neutra nada muda; com a enquadrada, o enquadramento é refeito a partir do grafo
-//   CARREGADO (não do editado) quando o canvas é medido de novo. Os vértices criados depois seguem a câmera.
+// - exemplo: câmera ENQUADRADA UMA vez (`fitCameraToGraph`); se o quadro ainda não foi medido, o enquadramento espera a primeira medida;
+// - adicionar vértice, conectar, selecionar, editar, excluir, desfazer, refazer e trocar de modo NÃO mudam a câmera; arrastar um vértice a mantém fixa;
+// - pan e pinça mudam só a câmera; Centralizar e Ajustar ao grafo a mudam por comando explícito (nunca automaticamente depois de uma edição);
+// - redimensionar ou girar: o ponto do mundo que estava sob o centro do quadro antigo fica sob o centro do novo (`cameraForResize`); NÃO reenquadra o grafo.
+// Cada começo de sessão e cada comando avançam a época do armazém, e com isso um gesto atrasado de antes nunca move a câmera de depois.
 
 const EMPTY_SESSION: CreateEditorStateOptions = { graph: createGraph({ id: 'laboratorio' }), mode: 'select' };
 
@@ -68,18 +78,16 @@ export function LabScreen() {
 }
 
 const PLANNED = [
-  'Ampliar e deslocar o quadro com gestos.',
   'Ver o mesmo grafo como lista de adjacência e como matrizes.',
   'Executar BFS e DFS passo a passo, com explicação de cada passo.',
   'Comparar a complexidade de tempo e de espaço dos algoritmos.',
 ] as const;
 
-/** Como a câmera da sessão é obtida (decidido ao começar o grafo; as edições não a mudam). */
-type CameraView =
-  | { readonly kind: 'neutral' }
-  | { readonly kind: 'fit'; readonly graph: Graph; readonly layout: GraphLayout };
+/** O enquadramento do exemplo que ainda espera o quadro ser medido (aplicado UMA vez, na primeira medida). */
+type PendingFit = { readonly graph: Graph; readonly layout: GraphLayout };
 
-const NEUTRAL_VIEW: CameraView = { kind: 'neutral' };
+/** Aviso discreto de Ajustar ao grafo quando o zoom mínimo impede o enquadramento completo. */
+const FIT_LIMIT_NOTICE = 'O grafo é maior que o quadro no zoom mínimo: parte dele fica fora da área visível.';
 
 /** O conteúdo da tela, dentro do provider (exportado para os testes montarem a tela em torno de uma store conhecida). */
 export function LabContent() {
@@ -92,7 +100,9 @@ export function LabContent() {
   const reset = useEditorStore((state) => state.reset);
   const store = useEditorStoreApi();
   const [started, setStarted] = useState(false);
-  const [view, setView] = useState<CameraView>(NEUTRAL_VIEW);
+  const [cameraStore] = useState(() => createCameraStore(NEUTRAL_CAMERA));
+  const settledCamera = useSettledCamera(cameraStore);
+  const [fitLimited, setFitLimited] = useState<Camera | undefined>(undefined);
   const [measuredWidth, setMeasuredWidth] = useState(0);
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
   const [sheet, setSheet] = useState<SheetRequest | undefined>(undefined);
@@ -101,21 +111,37 @@ export function LabContent() {
   const size = canvasSize(measuredWidth);
   const width = size?.width;
   const height = size?.height;
-  const camera: Camera | undefined = useMemo(() => {
-    if (view.kind === 'neutral') return NEUTRAL_CAMERA;
-    if (width === undefined || height === undefined) return undefined;
-    return fitCameraToGraph(view.graph, view.layout, { width, height });
-  }, [view, width, height]);
-  const scene = useMemo(() => {
-    if (camera === undefined || width === undefined || height === undefined) return undefined;
-    return buildGraphScene(graph, layout, camera, { viewport: { width, height } });
-  }, [graph, layout, camera, width, height]);
+  const viewport: Viewport | undefined = useMemo(
+    () => (width === undefined || height === undefined ? undefined : { width, height }),
+    [width, height],
+  );
+  // A cena da tela é a da câmera ASSENTADA (resumo acessível, "fora da área visível"); durante um gesto o `LiveGraphRenderer` refaz a sua com a câmera viva.
+  const scene = useMemo(
+    () => (viewport === undefined ? undefined : buildGraphScene(graph, layout, settledCamera, { viewport })),
+    [graph, layout, settledCamera, viewport],
+  );
+  const pendingFit = useRef<PendingFit | undefined>(undefined);
+  const lastViewport = useRef<Viewport | undefined>(undefined);
 
-  // O arrasto de vértice: o controlador é criado uma vez e recebe o contexto atual depois de cada renderização.
-  const drag = useVertexDragController(store, {
-    camera,
-    viewport: width === undefined || height === undefined ? undefined : { width, height },
-    scene,
+  // O quadro foi medido (ou mudou de tamanho). Primeira medida com um exemplo à espera: enquadra UMA vez. Depois: o ponto do mundo sob o centro do quadro antigo
+  // fica sob o centro do novo (sem reenquadrar). O comando avança a época e descarta qualquer gesto da medida anterior.
+  useEffect(() => {
+    if (viewport === undefined) return;
+    const previous = lastViewport.current;
+    lastViewport.current = viewport;
+    const pending = pendingFit.current;
+    if (pending !== undefined) {
+      pendingFit.current = undefined;
+      cameraStore.reset(fitCameraToGraph(pending.graph, pending.layout, viewport) ?? NEUTRAL_CAMERA);
+      return;
+    }
+    if (previous !== undefined) cameraStore.command(cameraForResize(cameraStore.get(), previous, viewport));
+  }, [viewport, cameraStore]);
+
+  // Os gestos do canvas: o arrasto de vértice (3.9), o pan da câmera e a pinça (3.10) e o orquestrador que decide o dono de cada gesto. São criados uma vez e recebem o contexto atual depois
+  // de cada renderização; a câmera é lida do armazém na hora do gesto.
+  const { drag, gestures } = useCanvasGestures(store, cameraStore, {
+    viewport,
     // sem grafo começado o canvas nem existe (não há detector); só a folha aberta tira o toque do canvas
     enabled: sheet === undefined,
   });
@@ -130,28 +156,50 @@ export function LabContent() {
   // feito se o canvas ainda não foi medido. Um toque segue UM caminho, escolhido pelo modo: em Conectar, a máquina de estados da
   // conexão (origem, destino, cancelar); nos outros, a criação de vértice (só em Adicionar vértice, em área vazia).
   const onCanvasTap = (point: Point): void => {
-    if (sheet !== undefined || camera === undefined || width === undefined || height === undefined) return;
+    if (sheet !== undefined || viewport === undefined) return;
+    const camera = cameraStore.get(); // a câmera VIVA na hora do toque: a mesma que está desenhada
     const { editor, dispatch, connectTap } = store.getState();
     if (editor.mode === 'connect') {
-      connectTap(camera, point, { width, height });
+      connectTap(camera, point, viewport);
       return;
     }
     if (editor.mode === 'select') {
-      const selecting = tapToSelectionAction(editor, camera, point, { width, height });
+      const selecting = tapToSelectionAction(editor, camera, point, viewport);
       if (selecting !== undefined) dispatch(selecting);
       return;
     }
-    const action = tapToEditorAction(editor, camera, point, { width, height });
+    const action = tapToEditorAction(editor, camera, point, viewport);
     if (action !== undefined) dispatch(action);
   };
 
+  // Centralizar: o centro do grafo vai para o centro do quadro, no mesmo zoom. Ajustar ao grafo: enquadra com margem, dentro dos limites de zoom; se o zoom mínimo
+  // não bastar, avisa. São comandos explícitos (avançam a época do armazém); nunca mexem no grafo, no layout nem no histórico.
+  const onCenterCamera = (): void => {
+    if (viewport === undefined) return;
+    const { editor } = store.getState();
+    setFitLimited(undefined);
+    cameraStore.command(centerCamera(editor.graph, editor.layout, cameraStore.get(), viewport));
+  };
+  const onFitCamera = (): void => {
+    if (viewport === undefined) return;
+    const { editor } = store.getState();
+    const result = fitGraphCamera(editor.graph, editor.layout, viewport);
+    if (result === undefined) return;
+    cameraStore.command(result.camera);
+    setFitLimited(result.fits ? undefined : result.camera);
+  };
+  // O aviso só vale enquanto a câmera assentada é a do enquadramento: qualquer outro movimento da câmera o esconde sozinho.
+  const fitNotice = fitLimited !== undefined && fitLimited === settledCamera ? FIT_LIMIT_NOTICE : undefined;
+
   const startNewGraph = (directed: boolean): void => {
     serial.current += 1;
-    drag.cancel();
+    gestures.cancel();
     setSheet(undefined);
     setLoadError(undefined);
     setStarted(true);
-    setView(NEUTRAL_VIEW);
+    pendingFit.current = undefined;
+    setFitLimited(undefined);
+    cameraStore.reset(NEUTRAL_CAMERA);
     reset({ graph: buildNewGraph(directed, serial.current), mode: 'add-vertex' });
   };
 
@@ -162,11 +210,15 @@ export function LabContent() {
       return;
     }
     const exampleLayout = circularLayout(example.value);
-    drag.cancel();
+    gestures.cancel();
     setSheet(undefined);
     setLoadError(undefined);
     setStarted(true);
-    setView({ kind: 'fit', graph: example.value, layout: exampleLayout });
+    setFitLimited(undefined);
+    // enquadra UMA vez; sem a medida do quadro, espera a primeira (a câmera neutra fica no lugar enquanto isso)
+    const fit = viewport === undefined ? undefined : fitCameraToGraph(example.value, exampleLayout, viewport);
+    pendingFit.current = fit === undefined ? { graph: example.value, layout: exampleLayout } : undefined;
+    cameraStore.reset(fit ?? NEUTRAL_CAMERA);
     reset({ graph: example.value, layout: exampleLayout, mode: 'select' });
   };
 
@@ -178,12 +230,16 @@ export function LabContent() {
           <>
             <ModeBar />
             <View style={styles.block}>
-              <CanvasGestureDetector onTap={onCanvasTap} drag={drag.handlers}>
+              <CanvasGestureDetector onTap={onCanvasTap} pan={gestures.pan} pinch={gestures.pinch}>
                 <View testID="canvas-area" onLayout={onCanvasLayout} style={styles.canvasArea}>
                   {scene !== undefined && width !== undefined && height !== undefined ? (
                     <LiveGraphRenderer
                       controller={drag}
-                      scene={scene}
+                      cameraStore={cameraStore}
+                      graph={graph}
+                      layout={layout}
+                      baseScene={scene}
+                      baseCamera={settledCamera}
                       width={width}
                       height={height}
                       highlightedVertexId={connectSource}
@@ -211,6 +267,7 @@ export function LabContent() {
                   />
                 </View>
               </CanvasGestureDetector>
+              <CameraControls onCenter={onCenterCamera} onFit={onFitCamera} notice={fitNotice} />
               <ConnectStatus />
               <SelectionStatus
                 onEdit={(chosen) => {

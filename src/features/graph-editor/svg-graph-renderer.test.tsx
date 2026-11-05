@@ -680,3 +680,65 @@ describe('SvgGraphRenderer: prévia do arrasto', () => {
     expect(JSON.stringify(scene)).toBe(before);
   });
 });
+
+describe('SvgGraphRenderer: deslocamento da cena (offset, 3.10)', () => {
+  const OFFSET = { x: 25, y: -10 };
+  const circleOf = (id: string) => byId(`vertex-circle-${id}`).props as { cx: number; cy: number; r: number };
+  /** A matriz [a, b, c, d, tx, ty] que o SVG recebe do grupo; `+ 0` normaliza o −0 que a conversão de transformações deixa. */
+  const matrixOf = (): number[] => (byId('scene-offset').props.matrix as number[]).map((value) => value + 0);
+
+  it('sem offset, o grupo da cena não desloca nada', async () => {
+    await draw(exampleScene());
+
+    expect(matrixOf()).toStrictEqual([1, 0, 0, 1, 0, 0]);
+  });
+
+  it('com offset, o grupo inteiro é deslocado e a geometria dos elementos NÃO muda (a cena é reaproveitada)', async () => {
+    const scene = exampleScene();
+    const first = scene.vertices[0]!;
+    const view = await render(<SvgGraphRenderer scene={scene} width={VIEWPORT.width} height={VIEWPORT.height} />);
+    const before = { ...circleOf(first.id) };
+    await view.rerender(<SvgGraphRenderer scene={scene} width={VIEWPORT.width} height={VIEWPORT.height} offset={OFFSET} />);
+
+    expect(matrixOf()).toStrictEqual([1, 0, 0, 1, 25, -10]);
+    expect(circleOf(first.id)).toStrictEqual(before);
+  });
+
+  it('o offset não cria nem remove elementos: as mesmas arestas, vértices e pesos', async () => {
+    const scene = exampleScene();
+    const view = await render(<SvgGraphRenderer scene={scene} width={VIEWPORT.width} height={VIEWPORT.height} />);
+    const counts = () => [count(/^vertex-circle-/), count(/^edge-/), count(/^weight-/)];
+    const before = counts();
+    await view.rerender(<SvgGraphRenderer scene={scene} width={VIEWPORT.width} height={VIEWPORT.height} offset={OFFSET} />);
+
+    expect(counts()).toStrictEqual(before);
+    expect(before[0]).toBe(scene.vertices.length);
+  });
+
+  it('voltar a `undefined` zera o deslocamento', async () => {
+    const scene = exampleScene();
+    const view = await render(<SvgGraphRenderer scene={scene} width={VIEWPORT.width} height={VIEWPORT.height} offset={OFFSET} />);
+    await view.rerender(<SvgGraphRenderer scene={scene} width={VIEWPORT.width} height={VIEWPORT.height} />);
+
+    expect(matrixOf()).toStrictEqual([1, 0, 0, 1, 0, 0]);
+  });
+
+  it('o deslocamento vale também para a prévia do arrasto e a seleção: tudo dentro do mesmo grupo', async () => {
+    const scene = exampleScene();
+    const first = scene.vertices[0]!;
+    await render(<SvgGraphRenderer scene={scene} width={VIEWPORT.width} height={VIEWPORT.height} offset={OFFSET} selection={{ type: 'vertex', vertexId: first.id }} />);
+    const group = byId('scene-offset');
+    const inside = (testID: string): boolean => {
+      const stack = [group];
+      while (stack.length > 0) {
+        const node = stack.pop()!;
+        if (node.props.testID === testID) return true;
+        for (const child of node.children) if (typeof child !== 'string') stack.push(child);
+      }
+      return false;
+    };
+
+    expect(inside(`vertex-circle-${first.id}`)).toBe(true);
+    expect(inside(`vertex-selection-ring-${first.id}`)).toBe(true);
+  });
+});

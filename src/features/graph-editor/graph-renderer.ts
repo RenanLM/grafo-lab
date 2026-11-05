@@ -2,7 +2,7 @@ import type { ComponentType } from 'react';
 
 import type { VertexId } from '@/domain/graph';
 
-import type { DragPreview, EditorSelection, GraphScene } from './core';
+import type { DragPreview, EditorSelection, GraphScene, Point } from './core';
 
 // Contrato de um renderizador de grafos: recebe uma CENA pronta (em dp de tela, calculada pelo núcleo puro) e a área de desenho,
 // e só desenha. Não trata gestos, não faz hit-testing, não conhece a store nem altera o grafo. Hoje há uma implementação
@@ -30,6 +30,15 @@ export type GraphRendererProps = {
    * e desenha os da prévia no lugar. Uma prévia de outro grafo (`graphId` diferente da cena) é ignorada.
    */
   readonly preview?: DragPreview;
+  /**
+   * Deslocamento, em dp de tela, a aplicar à cena INTEIRA (3.10). Serve ao pan da câmera: `cena(câmera + d)` é exatamente `cena(câmera)` deslocada por `d`, porque a câmera só soma uma
+   * translação (as espessuras, as setas e os textos são constantes em dp e não crescem), então o pan pode deslocar um grupo do SVG sem refazer a cena. NÃO serve ao zoom, que muda a escala de
+   * tudo (a cena é refeita). Padrão: nenhum deslocamento.
+   *
+   * PREMISSA: o renderizador desenha TODOS os vértices e arestas da cena, inclusive os que o campo `visible` marca como fora da área; é por isso que uma cena montada para a câmera de antes ainda
+   * mostra o que o pan traz para dentro do quadro. Se um dia o renderizador passar a pular elementos fora da área, o pan por deslocamento tem de voltar a refazer a cena.
+   */
+  readonly offset?: Point;
 };
 
 export type GraphRenderer = ComponentType<GraphRendererProps>;

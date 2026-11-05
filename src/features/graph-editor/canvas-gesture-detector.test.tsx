@@ -3,7 +3,7 @@ import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { createGestureController, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
 
-import { CanvasGestureDetector, TAP_MAX_DISTANCE_DP, type CanvasDragHandlers } from './canvas-gesture-detector';
+import { CanvasGestureDetector, TAP_MAX_DISTANCE_DP, type CanvasPanHandlers, type CanvasPinchHandlers } from './canvas-gesture-detector';
 import { DRAG_START_DISTANCE_DP, type Point } from './core';
 import { ACTIVE_STATE, recordGestureStateRequests, sendTouches } from './gesture-test-helpers';
 
@@ -11,17 +11,17 @@ import { ACTIVE_STATE, recordGestureStateRequests, sendTouches } from './gesture
 // pelo ciclo begin → activate → end, e o cancelamento por cancel/fail. O que verificamos no TOQUE: UM `onTap` por toque concluído, nenhum
 // por toque cancelado ou falho, e o ponto entregue é o LOCAL (x, y), nunca o absoluto da tela. O ARRASTO tem o seu bloco no fim do arquivo.
 
-function tree(onTap: (point: Point) => void, drag?: CanvasDragHandlers) {
+function tree(onTap: (point: Point) => void, drag?: CanvasPanHandlers, pinch?: CanvasPinchHandlers) {
   return (
     <GestureHandlerRootView>
-      <CanvasGestureDetector onTap={onTap} drag={drag}>
+      <CanvasGestureDetector onTap={onTap} pan={drag} pinch={pinch}>
         <View testID="canvas" />
       </CanvasGestureDetector>
     </GestureHandlerRootView>
   );
 }
 
-async function mountDetector(onTap: (point: Point) => void, drag?: CanvasDragHandlers) {
+async function mountDetector(onTap: (point: Point) => void, drag?: CanvasPanHandlers) {
   const view = await render(tree(onTap, drag));
   const controller = createGestureController(getByGestureTestId('canvas-tap'));
   return { ...view, controller };
@@ -167,7 +167,7 @@ describe('CanvasGestureDetector: toque', () => {
 // ativa se o controlador responder `true` a `touchMove`, e o pedido é feito ao módulo nativo (`GestureStateManager.activate`, aqui registrado). O
 // que o Jest NÃO mostra (o ScrollView cancelado pelo Gesture Handler quando o pan ativa) está no roteiro do emulador, em docs/ARCHITECTURE.md.
 
-type FakeDrag = { [K in keyof CanvasDragHandlers]: jest.MockedFunction<CanvasDragHandlers[K]> };
+type FakeDrag = { [K in keyof CanvasPanHandlers]: jest.MockedFunction<CanvasPanHandlers[K]> };
 
 /** Um `touchMove` que sempre responde `value`. */
 const answer = (value: boolean) => jest.fn<boolean, [Point]>(() => value);
@@ -203,11 +203,12 @@ describe('CanvasGestureDetector: arrasto', () => {
     return { onTap, pan, tapController, drag, handlerTag };
   }
 
-  it('o toque e o arrasto são dois gestos do MESMO detector, e os dois limites são o mesmo valor (até 10 dp é toque, de 10 dp em diante é arrasto)', async () => {
+  it('o toque, o pan e a pinça são três gestos do MESMO detector, e os dois limites são o mesmo valor (até 10 dp é toque, de 10 dp em diante é deslize)', async () => {
     await mountWithDrag();
 
     expect(getByGestureTestId('canvas-tap')).toBeDefined();
     expect(getByGestureTestId('canvas-pan')).toBeDefined();
+    expect(getByGestureTestId('canvas-pinch')).toBeDefined();
     expect(DRAG_START_DISTANCE_DP).toBe(TAP_MAX_DISTANCE_DP);
   });
 
@@ -312,6 +313,7 @@ describe('CanvasGestureDetector: arrasto', () => {
     });
 
     expect(drag.activated).toHaveBeenCalledTimes(1);
+    expect(drag.activated).toHaveBeenCalledWith({ x: 15, y: 0 }); // o deslocamento no instante da ativação: (75, 60) − (60, 60)
     expect(drag.update.mock.calls).toStrictEqual([[{ x: 35, y: 20 }], [{ x: 50, y: 30 }]]); // 95 − 60, 80 − 60 …, e não 20, 20 …
     expect(drag.release).toHaveBeenCalledTimes(1);
     expect(drag.release).toHaveBeenCalledWith({ x: 50, y: 30 });
@@ -400,13 +402,13 @@ const nativeModule = (jest.requireMock('react-native-gesture-handler/lib/module/
 describe('CanvasGestureDetector: toque e arrasto competem', () => {
   // O simulador de gestos não negocia entre gestos, mas a composição escolhida chega ao módulo nativo como RELAÇÕES entre os gestos. Numa corrida (`useCompetingGestures`)
   // nenhum dos dois é simultâneo com o outro nem espera o outro: o primeiro que ativa cancela o outro. `useSimultaneousGestures` listaria um no outro.
-  it('nenhuma relação entre o toque e o arrasto: sem simultâneo, sem espera e sem bloqueio (corrida)', async () => {
+  it('nenhuma relação entre o toque, o pan e a pinça: sem simultâneo, sem espera e sem bloqueio (corrida)', async () => {
     const configure = jest.spyOn(nativeModule, 'configureRelations');
     await render(tree(jest.fn(), fakeDrag()));
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 60)); // as relações são enviadas no quadro seguinte
     });
-    const tags = ['canvas-tap', 'canvas-pan'].map((id) => (getByGestureTestId(id) as unknown as { handlerTag: number }).handlerTag);
+    const tags = ['canvas-tap', 'canvas-pan', 'canvas-pinch'].map((id) => (getByGestureTestId(id) as unknown as { handlerTag: number }).handlerTag);
 
     for (const tag of tags) {
       const sent = configure.mock.calls.filter(([handlerTag]) => handlerTag === tag);
@@ -416,5 +418,182 @@ describe('CanvasGestureDetector: toque e arrasto competem', () => {
       }
     }
     configure.mockRestore();
+  });
+});
+
+// PINÇA e toque de dois dedos (3.10). A pinça entrega o foco LOCAL e a escala ACUMULADA (nunca a incremental, `scaleChange`); o toque de mais de um dedo falha.
+describe('CanvasGestureDetector: pinça', () => {
+  const recorder = { requests: jest.fn(), restore: () => {} };
+  beforeEach(() => {
+    Object.assign(recorder, recordGestureStateRequests());
+  });
+  afterEach(() => {
+    recorder.restore();
+  });
+
+  const fakePinch = () => ({
+    activated: jest.fn<void, [Point, number]>(),
+    update: jest.fn<void, [Point, number]>(),
+    end: jest.fn<void, []>(),
+    cancel: jest.fn<void, []>(),
+    finalize: jest.fn<void, []>(),
+  });
+
+  async function mountWithPinch(pinch = fakePinch()) {
+    await render(tree(jest.fn(), undefined, pinch));
+    return { pinch, controller: createGestureController(getByGestureTestId('canvas-pinch')) };
+  }
+
+  it('a pinça ativa com o foco LOCAL (focalX, focalY) e a escala acumulada daquele instante', async () => {
+    const { pinch, controller } = await mountWithPinch();
+    await act(async () => {
+      controller.begin({ focalX: 150, focalY: 120 });
+      controller.activate({ focalX: 150, focalY: 120, scale: 1, scaleChange: 1 });
+    });
+
+    expect(pinch.activated).toHaveBeenCalledTimes(1);
+    expect(pinch.activated).toHaveBeenCalledWith({ x: 150, y: 120 }, 1);
+  });
+
+  it('cada atualização entrega o foco atual e a escala ACUMULADA, não a incremental: scale 1,5 com scaleChange 1,25 chega como 1,5', async () => {
+    const { pinch, controller } = await mountWithPinch();
+    await act(async () => {
+      controller.begin({ focalX: 150, focalY: 120 });
+      controller.activate({ focalX: 150, focalY: 120, scale: 1, scaleChange: 1 });
+      controller.update({ focalX: 160, focalY: 110, scale: 1.2, scaleChange: 1.2 });
+      controller.update({ focalX: 170, focalY: 100, scale: 1.5, scaleChange: 1.25 });
+    });
+
+    expect(pinch.update.mock.calls).toStrictEqual([
+      [{ x: 160, y: 110 }, 1.2],
+      [{ x: 170, y: 100 }, 1.5],
+    ]);
+  });
+
+  it('a atualização com menos de dois ponteiros (o dedo que sobe) é ignorada: o foco pularia para o dedo restante', async () => {
+    const { pinch, controller } = await mountWithPinch();
+    await act(async () => {
+      controller.begin({ focalX: 150, focalY: 120 });
+      controller.activate({ focalX: 150, focalY: 120, scale: 1, scaleChange: 1 });
+      controller.update({ focalX: 150, focalY: 120, scale: 1.5, scaleChange: 1.5, numberOfPointers: 2 });
+      controller.update({ focalX: 300, focalY: 250, scale: 1.5, scaleChange: 1, numberOfPointers: 1 });
+    });
+
+    expect(pinch.update.mock.calls).toStrictEqual([[{ x: 150, y: 120 }, 1.5]]);
+  });
+
+  it('as coordenadas absolutas da tela não são usadas: só focalX e focalY', async () => {
+    const { pinch, controller } = await mountWithPinch();
+    await act(async () => {
+      controller.begin({ focalX: 10, focalY: 20 });
+      controller.activate({ focalX: 10, focalY: 20, scale: 1, scaleChange: 1, absoluteX: 400, absoluteY: 900 });
+    });
+
+    expect(pinch.activated).toHaveBeenCalledWith({ x: 10, y: 20 }, 1);
+  });
+
+  it('os dedos sobem: end UMA vez, nenhum cancel, e finalize', async () => {
+    const { pinch, controller } = await mountWithPinch();
+    await act(async () => {
+      controller.begin({ focalX: 1, focalY: 1 });
+      controller.activate({ focalX: 1, focalY: 1, scale: 1, scaleChange: 1 });
+      controller.update({ focalX: 1, focalY: 1, scale: 2, scaleChange: 2 });
+      controller.end({ focalX: 1, focalY: 1, scale: 2, scaleChange: 1 });
+    });
+
+    expect(pinch.end).toHaveBeenCalledTimes(1);
+    expect(pinch.cancel).not.toHaveBeenCalled();
+    expect(pinch.finalize).toHaveBeenCalledTimes(1);
+  });
+
+  it('pinça cancelada: cancel UMA vez, nenhum end, e finalize', async () => {
+    const { pinch, controller } = await mountWithPinch();
+    await act(async () => {
+      controller.begin({ focalX: 1, focalY: 1 });
+      controller.activate({ focalX: 1, focalY: 1, scale: 1, scaleChange: 1 });
+      controller.cancel({ focalX: 1, focalY: 1, scale: 1.4, scaleChange: 1 });
+    });
+
+    expect(pinch.cancel).toHaveBeenCalledTimes(1);
+    expect(pinch.end).not.toHaveBeenCalled();
+    expect(pinch.finalize).toHaveBeenCalledTimes(1);
+  });
+
+  it('pinça que falha antes de ativar: só finalize', async () => {
+    const { pinch, controller } = await mountWithPinch();
+    await act(async () => {
+      controller.begin({ focalX: 1, focalY: 1 });
+      controller.fail({ focalX: 1, focalY: 1 });
+    });
+
+    expect(pinch.finalize).toHaveBeenCalledTimes(1);
+    expect(pinch.activated).not.toHaveBeenCalled();
+    expect(pinch.end).not.toHaveBeenCalled();
+    expect(pinch.cancel).not.toHaveBeenCalled();
+  });
+
+  it('sem pinça na propriedade, nada quebra: os eventos são ignorados', async () => {
+    await render(tree(jest.fn()));
+    const controller = createGestureController(getByGestureTestId('canvas-pinch'));
+
+    await expect(
+      act(async () => {
+        controller.begin({ focalX: 1, focalY: 1 });
+        controller.activate({ focalX: 1, focalY: 1, scale: 1, scaleChange: 1 });
+        controller.end({ focalX: 1, focalY: 1, scale: 1, scaleChange: 1 });
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('a pinça usada é sempre a mais recente: trocar a propriedade entre renderizações vale já para o próximo gesto', async () => {
+    const first = fakePinch();
+    const second = fakePinch();
+    const { rerender } = await render(tree(jest.fn(), undefined, first));
+    const controller = createGestureController(getByGestureTestId('canvas-pinch'));
+    await act(async () => {
+      controller.begin({ focalX: 1, focalY: 2 });
+      controller.activate({ focalX: 1, focalY: 2, scale: 1, scaleChange: 1 });
+      controller.end({ focalX: 1, focalY: 2, scale: 1, scaleChange: 1 });
+    });
+    await rerender(tree(jest.fn(), undefined, second));
+    await act(async () => {
+      controller.begin({ focalX: 3, focalY: 4 });
+      controller.activate({ focalX: 3, focalY: 4, scale: 1, scaleChange: 1 });
+    });
+
+    expect(first.activated).toHaveBeenCalledTimes(1);
+    expect(second.activated).toHaveBeenCalledWith({ x: 3, y: 4 }, 1);
+  });
+
+  it('um toque de DOIS dedos falha: com mais de um dedo o toque pede ao módulo nativo o estado FALHOU', async () => {
+    await render(tree(jest.fn()));
+    const handlerTag = (getByGestureTestId('canvas-tap') as unknown as { handlerTag: number }).handlerTag;
+    await sendTouches('canvas-tap', 'down', { x: 10, y: 10 }, { x: 80, y: 90 });
+
+    expect(recorder.requests).toHaveBeenCalledTimes(1);
+    expect(recorder.requests).toHaveBeenCalledWith(handlerTag, 1); // State.FAILED
+  });
+
+  it('um toque de UM dedo não falha: nenhum pedido ao módulo nativo', async () => {
+    await render(tree(jest.fn()));
+    await sendTouches('canvas-tap', 'down', { x: 10, y: 10 });
+
+    expect(recorder.requests).not.toHaveBeenCalled();
+  });
+
+  it('dois dedos sobre o canvas ativam a pinça NA HORA, sem esperar o vão mudar (senão a página rola enquanto eles andam juntos)', async () => {
+    await render(tree(jest.fn(), undefined, fakePinch()));
+    const handlerTag = (getByGestureTestId('canvas-pinch') as unknown as { handlerTag: number }).handlerTag;
+    await sendTouches('canvas-pinch', 'down', { x: 10, y: 10 }, { x: 80, y: 90 });
+
+    expect(recorder.requests).toHaveBeenCalledTimes(1);
+    expect(recorder.requests).toHaveBeenCalledWith(handlerTag, 4); // State.ACTIVE
+  });
+
+  it('com UM dedo a pinça não pede ativação: um dedo só nunca é pinça', async () => {
+    await render(tree(jest.fn(), undefined, fakePinch()));
+    await sendTouches('canvas-pinch', 'down', { x: 10, y: 10 });
+
+    expect(recorder.requests).not.toHaveBeenCalled();
   });
 });

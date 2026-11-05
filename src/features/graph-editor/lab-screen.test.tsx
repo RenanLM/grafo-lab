@@ -86,7 +86,8 @@ describe('LabScreen: estado inicial', () => {
     expect(screen.queryByText(/ainda não está disponível/)).toBeNull(); // conectar já existe: nada de "em breve" no texto da tela
     expect(screen.queryByText(/chega em breve/)).toBeNull();
     expect(screen.getByText('O que ainda vem aqui')).toBeOnTheScreen();
-    expect(screen.getByText(/Ampliar e deslocar o quadro com gestos./)).toBeOnTheScreen();
+    expect(screen.getByText(/Ver o mesmo grafo como lista de adjacência e como matrizes./)).toBeOnTheScreen();
+    expect(screen.queryByText(/Ampliar e deslocar o quadro/)).toBeNull(); // pan e pinça já existem (3.10): não estão mais em "o que ainda vem"
     expect(screen.queryByText(/Arrastar vértices/)).toBeNull(); // arrastar vértices já existe (3.9): não está mais em "o que ainda vem"
     expect(screen.queryByText(/Selecionar, editar e excluir vértices e arestas/)).toBeNull(); // já existe: não está mais em "o que ainda vem"
     expect(screen.queryByText(/Conectar vértices com arestas, tocando na tela/)).toBeNull();
@@ -294,21 +295,37 @@ describe('LabScreen: câmera estável durante a edição', () => {
     expect(circle('v1')).toMatchObject({ cx: 50, cy: 70, r: 20 });
   });
 
-  it('com a câmera neutra, redimensionar o canvas não desloca os vértices; com o exemplo, o enquadramento é refeito do grafo CARREGADO', async () => {
+  // 3.10: redimensionar (ou girar) NÃO reenquadra o grafo: o ponto do mundo que estava sob o CENTRO do quadro antigo fica sob o centro do novo, com o mesmo zoom. A altura do quadro é função da
+  // largura (0,9, entre 240 e 420 dp): 360 dp de largura dão 324 de altura (centro em 180, 162) e 600 dão 420 (centro em 300, 210), então tudo se desloca (120, 48) e nada muda de tamanho.
+  it('redimensionar o canvas mantém o ponto do mundo que estava no centro (os vértices mantêm a posição RELATIVA ao centro, o zoom não muda) e não reenquadra', async () => {
     const { addAt } = await mountWith();
     await press(NOVO);
     await measure(360);
     await addAt(120, 90);
     await measure(600);
-    expect(circle('v1')).toMatchObject({ cx: 120, cy: 90 });
+
+    expect(circle('v1')).toMatchObject({ cx: 240, cy: 138, r: 20 }); // (120 − 180, 90 − 162) a partir do novo centro (300, 210)
 
     await loadExample();
     await measure(360);
-    const estreito = circle('v2').cx;
-    await addAt(900, 900);
+    const before = circle('v2');
     await measure(600);
+    const after = circle('v2');
 
-    expect(circle('v2').cx).toBeGreaterThan(estreito); // reenquadrou para a largura nova, a partir do exemplo carregado
+    expect(after.cx - before.cx).toBeCloseTo(120, 6);
+    expect(after.cy - before.cy).toBeCloseTo(48, 6);
+    expect(after.r).toBe(before.r); // o zoom é o mesmo: não houve novo enquadramento
+  });
+
+  it('voltar à largura anterior devolve a câmera ao ponto de partida (a mudança é reversível e sem resíduo)', async () => {
+    const { addAt } = await mountWith();
+    await press(NOVO);
+    await measure(360);
+    await addAt(120, 90);
+    await measure(600);
+    await measure(360);
+
+    expect(circle('v1')).toMatchObject({ cx: 120, cy: 90, r: 20 });
   });
 });
 

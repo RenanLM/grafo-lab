@@ -42,6 +42,10 @@ import type { GraphRendererProps } from './graph-renderer';
 // O destaque de seleção acompanha o vértice (ou a aresta) arrastado: o anel e o halo são procurados primeiro na prévia. Uma prévia de OUTRO grafo
 // (`graphId` diferente do da cena, que reaproveita os mesmos ids técnicos) é ignorada: nunca se desenha por cima do grafo errado.
 //
+// Deslocamento da cena (3.10): `offset` desloca TODO o desenho (um `G` com `translateX/Y` envolve as camadas) sem refazer a cena. É exato para o pan da câmera, em que `cena(câmera + d)` é `cena(câmera)`
+// deslocada por `d` (a câmera só soma uma translação: espessuras, setas e textos são constantes em dp e não mudam); NÃO serve ao zoom. O grupo existe SEMPRE (com 0 quando não há deslocamento): trocar de
+// estrutura entre os quadros remontaria todos os elementos. As camadas memoizadas não recebem o deslocamento, então um pan atualiza só as propriedades desse nó.
+//
 // Custo: Θ(V + E) elementos SVG (um círculo e um texto por vértice; um traço por aresta, mais seta e peso quando há; um anel quando
 // há destaque). Sem arrasto, a cena não muda a cada quadro. A parte nativa (react-native-svg) redesenha o quadro inteiro a cada alteração de
 // qualquer elemento, e isso o arrasto não evita: reduz-se o trabalho do React e do Fabric (Θ(grau) elementos atualizados), não o desenho nativo.
@@ -240,7 +244,7 @@ const VertexLabels = memo(function VertexLabels({ vertices, skipId, fontSize, te
   );
 });
 
-export function SvgGraphRenderer({ scene, width, height, highlightedVertexId, selection, preview }: GraphRendererProps) {
+export function SvgGraphRenderer({ scene, width, height, highlightedVertexId, selection, preview, offset }: GraphRendererProps) {
   const { colors } = useTheme();
   const { labelFontSize } = scene;
   const edgeColor = colors.textSecondary;
@@ -288,6 +292,7 @@ export function SvgGraphRenderer({ scene, width, height, highlightedVertexId, se
         height={height}
         viewBox={`0 0 ${width} ${height}`}
         importantForAccessibility="no-hide-descendants">
+        <G testID="scene-offset" translateX={offset?.x ?? 0} translateY={offset?.y ?? 0}>
         {selectedEdge === undefined ? null : (
           <G>
             {selectedEdge.path.kind === 'line' ? (
@@ -352,6 +357,7 @@ export function SvgGraphRenderer({ scene, width, height, highlightedVertexId, se
         <VertexCircles vertices={liveVertices} skipId={undefined} {...vertexProps} />
         <VertexLabels vertices={scene.vertices} skipId={hiddenVertexId} fontSize={labelFontSize} textColor={colors.text} />
         <VertexLabels vertices={liveVertices} skipId={undefined} fontSize={labelFontSize} textColor={colors.text} />
+        </G>
       </Svg>
     </View>
   );

@@ -217,16 +217,17 @@ describe('Arrastar: o gesto move o vértice', () => {
     expect(layoutOf(store)).toBe(before);
   });
 
-  it('arrasto iniciado no FUNDO não move vértice nenhum e não pede ativação: a rolagem da página não é tocada', async () => {
+  // 3.10: o fundo deixou de rolar a página e passou a mover a CÂMERA (o dono do deslize é decidido no começo; ver lab-screen-camera.test.tsx). O que continua valendo do 3.9: nenhum vértice se mexe.
+  it('arrasto iniciado no FUNDO não move vértice nenhum (desde o 3.10 move a câmera): o layout e o histórico ficam', async () => {
     const { dragFinger, store, editor } = await dragScreen();
     const before = layoutOf(store);
     const past = editor().history.past.length;
     const { activated } = await dragFinger(FUNDO, { x: 320, y: 40 });
 
-    expect(activated).toBe(false);
-    expect(recorder.requests).not.toHaveBeenCalled();
+    expect(activated).toBe(true); // a câmera pediu a ativação
     expect(layoutOf(store)).toBe(before);
     expect(editor().history.past).toHaveLength(past);
+    expect(position(store, 'v1')).toStrictEqual({ x: 60, y: 60 });
   });
 
   it('arrasto iniciado sobre uma ARESTA não move vértice nenhum nem pede ativação', async () => {

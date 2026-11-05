@@ -110,14 +110,22 @@ export function startDrag(
 
   const target = hitTapTarget(state.graph, state.layout, camera, screenPoint, viewport, options);
   if (target?.type !== 'vertex') return undefined;
+  return dragSessionAt(state, camera, screenPoint, target.vertexId);
+}
 
-  const start = positionOf(state.layout, target.vertexId);
+/**
+ * A sessão de arrasto do vértice `vertexId`, que o hit-testing JÁ identificou sob `screenPoint`: a parte de `startDrag` que vem depois do hit-test, exposta para que quem já fez o hit-test
+ * (`gestureOwnerAt`, que o faz UMA vez para decidir entre arrastar o vértice e mover a câmera) não o repita. Não confere o modo nem a área: isso é de quem chama. `undefined` se o vértice
+ * não tem posição finita no layout.
+ */
+export function dragSessionAt(state: DragEditorState, camera: Camera, screenPoint: Point, vertexId: VertexId): DragSession | undefined {
+  const start = positionOf(state.layout, vertexId);
   if (start === undefined || !isFinitePoint(start)) return undefined;
 
   const center = worldToScreen(camera, start);
   return Object.freeze({
     graphId: state.graph.id,
-    vertexId: target.vertexId,
+    vertexId,
     startWorldPosition: Object.freeze({ x: start.x, y: start.y }),
     startScreenPoint: Object.freeze({ x: noNegativeZero(screenPoint.x), y: noNegativeZero(screenPoint.y) }),
     grabOffset: Object.freeze({
@@ -135,10 +143,17 @@ export function startDrag(
  * inicial, `≥ threshold` (padrão `DRAG_START_DISTANCE_DP`; um limite inválido vale o padrão). Ponto não finito: não.
  */
 export function dragActivated(session: DragSession, screenPoint: Point, threshold: number = DRAG_START_DISTANCE_DP): boolean {
-  if (!isFinitePoint(screenPoint)) return false;
+  return fingerMoved(session.startScreenPoint, screenPoint, threshold);
+}
+
+/**
+ * O dedo já andou o suficiente desde `start` (onde desceu) para o gesto virar arrasto, seja de vértice ou de câmera? Distância euclidiana em dp, `≥ threshold` (padrão
+ * `DRAG_START_DISTANCE_DP`; um limite inválido vale o padrão). Ponto não finito: não. É a MESMA regra para os dois donos do pan, e o mesmo limite do toque.
+ */
+export function fingerMoved(start: Point, screenPoint: Point, threshold: number = DRAG_START_DISTANCE_DP): boolean {
+  if (!isFinitePoint(screenPoint) || !isFinitePoint(start)) return false;
   const limit = Number.isFinite(threshold) && threshold > 0 ? threshold : DRAG_START_DISTANCE_DP;
-  const { startScreenPoint } = session;
-  return Math.hypot(screenPoint.x - startScreenPoint.x, screenPoint.y - startScreenPoint.y) >= limit;
+  return Math.hypot(screenPoint.x - start.x, screenPoint.y - start.y) >= limit;
 }
 
 /** `posiçãoInicial + t / scale` (veja o cabeçalho), ou `undefined` se o deslocamento ou o resultado não são finitos. */
