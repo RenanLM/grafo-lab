@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react-native';
+import type { ComponentProps } from 'react';
 import { useColorScheme } from 'react-native';
 
 import { addEdge, addVertex, createGraph, type Graph, type Result } from '@/domain/graph';
@@ -11,6 +12,10 @@ import {
   emptyLayout,
   fitCameraToGraph,
   placeVertex,
+  planDragPreview,
+  buildDragPreview,
+  screenToWorld,
+  type DragPreview,
   type EditorSelection,
   type GraphLayout,
   type GraphScene,
@@ -485,5 +490,193 @@ describe('SvgGraphRenderer: destaque da seleção', () => {
     await drawSelected(scene, edgeSel('e3'));
 
     expect(JSON.stringify(scene)).toBe(antes);
+  });
+});
+
+// Prévia do arrasto (3.9). O renderizador não calcula nada: troca o vértice arrastado e as arestas dele (da camada estática) pelos da prévia, que o núcleo montou
+// com as mesmas fórmulas da cena. Aqui se confere o que fica na tela: cada elemento UMA vez, nas posições certas, na ordem de empilhamento certa, com o destaque seguindo.
+describe('SvgGraphRenderer: prévia do arrasto', () => {
+  function parts() {
+    const graph = must(buildExampleGraph());
+    const layout = circularLayout(graph);
+    const camera = fitCameraToGraph(graph, layout, VIEWPORT)!;
+    const scene = buildGraphScene(graph, layout, camera, { viewport: VIEWPORT })!;
+    return { graph, layout, camera, scene };
+  }
+
+  /** O plano e a cena para arrastar `vertexId`, com um construtor de prévia para um ponto da TELA (dp, com a câmera da cena). */
+  function dragOf(vertexId: string) {
+    const { graph, layout, camera, scene } = parts();
+    const plan = planDragPreview(graph, layout, scene, camera, vertexId, { viewport: VIEWPORT })!;
+    const at = (x: number, y: number): DragPreview => buildDragPreview(plan, screenToWorld(camera, { x, y }))!;
+    return { at, scene };
+  }
+
+  const previewAt = (vertexId: string, x: number, y: number) => {
+    const { at, scene } = dragOf(vertexId);
+    return { preview: at(x, y), scene };
+  };
+
+  type Extra = Partial<ComponentProps<typeof SvgGraphRenderer>>;
+  const element = (scene: GraphScene, preview: DragPreview | undefined, extra: Extra = {}) => (
+    <SvgGraphRenderer scene={scene} width={VIEWPORT.width} height={VIEWPORT.height} preview={preview} {...extra} />
+  );
+
+  const circle = (id: string) => byId(`vertex-circle-${id}`).props as { cx: number; cy: number };
+  const labelX = (id: string): number => {
+    const x = byId(`vertex-label-${id}`).props.x as number | number[];
+    return Number(Array.isArray(x) ? x[0] : x);
+  };
+
+  it('o vértice arrastado e as arestas dele aparecem UMA vez, nas posições da prévia; o resto fica onde a cena os pôs', async () => {
+    const { preview, scene } = previewAt('v2', 300, 250);
+    await render(element(scene, preview));
+
+    expect(count(/^vertex-circle-/)).toBe(4);
+    expect(count(/^vertex-label-/)).toBe(4);
+    expect(count(/^edge-stroke-/)).toBe(scene.edges.length);
+    expect(circle('v2')).toMatchObject({ cx: preview.vertex.center.x, cy: preview.vertex.center.y });
+    for (const vertex of scene.vertices.filter((candidate) => candidate.id !== 'v2')) {
+      expect(circle(vertex.id)).toMatchObject({ cx: vertex.center.x, cy: vertex.center.y });
+    }
+    for (const edge of scene.edges) {
+      const wanted = preview.edges.find((candidate) => candidate.id === edge.id) ?? edge;
+      const props = byId(`edge-stroke-${edge.id}`).props as { x1?: number; y1?: number; d?: string };
+      if (wanted.path.kind === 'line') expect(props).toMatchObject({ x1: wanted.path.from.x, y1: wanted.path.from.y });
+      else expect(props.d).toContain(`M ${wanted.path.from.x} ${wanted.path.from.y}`);
+    }
+  });
+
+  it('as arestas da prévia são as incidentes ao vértice (como origem ou destino); as outras não mudam', async () => {
+    const { preview, scene } = previewAt('v2', 300, 250);
+    await render(element(scene, preview));
+    const incident = scene.edges.filter((edge) => edge.sourceId === 'v2' || edge.targetId === 'v2').map((edge) => edge.id);
+
+    expect(preview.edges.map((edge) => edge.id)).toStrictEqual(incident);
+    expect(incident.length).toBeGreaterThan(1);
+    for (const edge of scene.edges.filter((candidate) => !incident.includes(candidate.id))) {
+      if (edge.path.kind === 'line') expect(byId(`edge-stroke-${edge.id}`).props).toMatchObject({ x1: edge.path.from.x, y2: edge.path.to.y });
+    }
+  });
+
+  it('as setas e os pesos das arestas incidentes acompanham (a ponta da seta é a da prévia; o texto do peso não muda)', async () => {
+    const { preview, scene } = previewAt('v2', 300, 250);
+    await render(element(scene, preview));
+
+    for (const edge of preview.edges) {
+      const arrow = edge.arrow!;
+      expect(byId(`edge-arrow-${edge.id}`).props.d).toBe(`M${arrow.tip.x} ${arrow.tip.y} ${arrow.left.x} ${arrow.left.y} ${arrow.right.x} ${arrow.right.y}z`);
+      if (edge.weight !== undefined) {
+        expect(textOf(byId(`weight-text-${edge.id}`))).toBe(edge.weight.text);
+        expect(byId(`weight-box-${edge.id}`).props.x).toBeCloseTo(edge.weight.anchor.x - edge.weight.width / 2, 9);
+      }
+    }
+    expect(count(/^edge-arrow-/)).toBe(scene.edges.length); // nenhuma seta duplicada nem perdida
+  });
+
+  it('o rótulo acompanha o vértice arrastado', async () => {
+    const { preview, scene } = previewAt('v2', 300, 250);
+    await render(element(scene, preview));
+
+    expect(labelX('v2')).toBe(preview.vertex.center.x);
+    expect(textOf(byId('vertex-label-v2'))).toBe(preview.vertex.displayLabel);
+  });
+
+  it('ordem de empilhamento: as arestas da prévia ficam abaixo de TODOS os vértices e o vértice arrastado fica acima dos outros', async () => {
+    const { preview, scene } = previewAt('v2', 300, 250);
+    await render(element(scene, preview));
+    const order = screen
+      .queryAllByTestId(/^(edge-stroke-.*|edge-arrow-.*|vertex-circle-.*|vertex-label-.*)$/, HIDDEN)
+      .map((node) => String(node.props.testID));
+    const index = (id: string) => order.indexOf(id);
+
+    for (const edge of preview.edges) {
+      for (const vertex of scene.vertices) expect(index(`edge-stroke-${edge.id}`)).toBeLessThan(index(`vertex-circle-${vertex.id}`));
+      expect(index(`edge-stroke-${edge.id}`)).toBeLessThan(index(`edge-arrow-${edge.id}`));
+    }
+    for (const vertex of scene.vertices.filter((candidate) => candidate.id !== 'v2')) {
+      expect(index('vertex-circle-v2')).toBeGreaterThan(index(`vertex-circle-${vertex.id}`));
+    }
+    expect(index('vertex-label-v2')).toBeGreaterThan(index('vertex-circle-v2')); // o rótulo fica por cima do círculo
+  });
+
+  it('o anel de seleção acompanha o vértice selecionado que está sendo arrastado', async () => {
+    const { preview, scene } = previewAt('v2', 300, 250);
+    await render(element(scene, preview, { selection: { type: 'vertex', vertexId: 'v2' } }));
+
+    expect(byId('vertex-selection-ring-v2').props).toMatchObject({ cx: preview.vertex.center.x, cy: preview.vertex.center.y });
+    expect(byId('vertex-circle-v2').props.strokeWidth).toBe(4);
+  });
+
+  it('o halo da aresta selecionada acompanha a aresta incidente; o de uma aresta que não é do vértice fica na cena', async () => {
+    const { preview, scene } = previewAt('v2', 300, 250);
+    const moved = preview.edges.find((edge) => edge.path.kind === 'line')!;
+    const { rerender } = await render(element(scene, preview, { selection: { type: 'edge', edgeId: moved.id } }));
+    expect(byId(`edge-selection-${moved.id}`).props).toMatchObject({ x1: moved.path.from.x, y1: moved.path.from.y });
+    expect(byId(`edge-stroke-${moved.id}`).props.strokeWidth).toBe(4);
+
+    const other = scene.edges.find((edge) => !preview.edges.some((candidate) => candidate.id === edge.id) && edge.path.kind === 'line')!;
+    await rerender(element(scene, preview, { selection: { type: 'edge', edgeId: other.id } }));
+    expect(byId(`edge-selection-${other.id}`).props).toMatchObject({ x1: other.path.from.x, y1: other.path.from.y });
+  });
+
+  it('o anel da origem do Conectar também acompanha o vértice arrastado', async () => {
+    const { preview, scene } = previewAt('v2', 300, 250);
+    await render(element(scene, preview, { highlightedVertexId: 'v2' }));
+
+    expect(byId('vertex-source-ring-v2').props).toMatchObject({ cx: preview.vertex.center.x, cy: preview.vertex.center.y });
+  });
+
+  it('uma prévia de OUTRO grafo (mesmos ids técnicos, `graphId` diferente) é ignorada: a cena aparece como estava', async () => {
+    const { preview, scene } = previewAt('v2', 300, 250);
+    await render(element(scene, { ...preview, graphId: 'outro-grafo' }));
+
+    expect(circle('v2')).toMatchObject({ cx: scene.vertices[1]!.center.x, cy: scene.vertices[1]!.center.y });
+    expect(count(/^vertex-circle-/)).toBe(4);
+    expect(count(/^edge-stroke-/)).toBe(scene.edges.length);
+  });
+
+  it('aresta incidente sem geometria na prévia (círculos que se tocam) some, sem deixar a da cena; as outras ficam', async () => {
+    const { scene } = parts();
+    const v1 = scene.vertices[0]!;
+    const { preview } = previewAt('v2', v1.center.x + 3, v1.center.y + 3); // v2 em cima de v1
+    await render(element(scene, preview));
+    const between = scene.edges.filter((edge) => [edge.sourceId, edge.targetId].includes('v2') && [edge.sourceId, edge.targetId].includes('v1'));
+
+    expect(between).toHaveLength(2); // v1 → v2 e v2 → v1 (arcos opostos)
+    for (const edge of between) expect(screen.queryByTestId(`edge-stroke-${edge.id}`, HIDDEN)).toBeNull();
+    expect(count(/^edge-stroke-/)).toBe(scene.edges.length - 2);
+  });
+
+  it('com prévia vazia de arestas (vértice isolado) só o vértice muda', async () => {
+    const { scene } = parts();
+    const before = scene.edges.length;
+    const { preview } = previewAt('v4', 100, 100); // v4 é o vértice isolado
+    await render(element(scene, preview));
+
+    expect(preview.edges).toHaveLength(0);
+    expect(count(/^edge-stroke-/)).toBe(before);
+    expect(circle('v4')).toMatchObject({ cx: preview.vertex.center.x, cy: preview.vertex.center.y });
+  });
+
+  it('a camada estática NÃO é redesenhada entre as atualizações do dedo (as propriedades dos elementos estáticos são os mesmos objetos)', async () => {
+    const { at, scene } = dragOf('v2');
+    const { rerender } = await render(element(scene, at(200, 200)));
+    const staticVertex = byId('vertex-circle-v1').props;
+    const staticEdge = byId('edge-stroke-e4').props;
+    await rerender(element(scene, at(210, 215)));
+    await rerender(element(scene, at(220, 230)));
+
+    expect(byId('vertex-circle-v1').props).toBe(staticVertex);
+    expect(byId('edge-stroke-e4').props).toBe(staticEdge);
+    expect(circle('v2').cx).toBe(at(220, 230).vertex.center.x); // e a camada da prévia, sim
+  });
+
+  it('a prévia não altera a cena recebida', async () => {
+    const { preview, scene } = previewAt('v2', 300, 250);
+    const before = JSON.stringify(scene);
+    await render(element(scene, preview));
+
+    expect(JSON.stringify(scene)).toBe(before);
   });
 });

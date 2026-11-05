@@ -86,7 +86,8 @@ describe('LabScreen: estado inicial', () => {
     expect(screen.queryByText(/ainda não está disponível/)).toBeNull(); // conectar já existe: nada de "em breve" no texto da tela
     expect(screen.queryByText(/chega em breve/)).toBeNull();
     expect(screen.getByText('O que ainda vem aqui')).toBeOnTheScreen();
-    expect(screen.getByText(/Arrastar vértices e ampliar ou deslocar o quadro com gestos./)).toBeOnTheScreen();
+    expect(screen.getByText(/Ampliar e deslocar o quadro com gestos./)).toBeOnTheScreen();
+    expect(screen.queryByText(/Arrastar vértices/)).toBeNull(); // arrastar vértices já existe (3.9): não está mais em "o que ainda vem"
     expect(screen.queryByText(/Selecionar, editar e excluir vértices e arestas/)).toBeNull(); // já existe: não está mais em "o que ainda vem"
     expect(screen.queryByText(/Conectar vértices com arestas, tocando na tela/)).toBeNull();
     expect(screen.queryByTestId('canvas-area')).toBeNull();

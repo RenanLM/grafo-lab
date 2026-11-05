@@ -10,8 +10,8 @@ import { Text } from '@/components/text';
 import { createGraph, type Graph } from '@/domain/graph';
 import { radius, spacing, useTheme } from '@/theme';
 
+import { CanvasGestureDetector } from './canvas-gesture-detector';
 import { canvasSize } from './canvas-size';
-import { CanvasTapDetector } from './canvas-tap-detector';
 import {
   NEUTRAL_CAMERA,
   buildGraphScene,
@@ -31,18 +31,24 @@ import { EditorStoreProvider, useEditorStore, useEditorStoreApi } from './editor
 import { buildExampleGraph } from './example-graph';
 import { buildNewGraph } from './new-graph';
 import { PropertiesSheet, type SheetRequest } from './properties-sheet';
-import { SvgGraphRenderer } from './svg-graph-renderer';
+import { LiveGraphRenderer, useVertexDragController } from './vertex-drag';
 
-// Tela do Laboratório (Fase 3, incrementos 3.6 a 3.8). O aluno começa um grafo vazio (orientado ou não) ou carrega o exemplo, escolhe o
+// Tela do Laboratório (Fase 3, incrementos 3.6 a 3.9). O aluno começa um grafo vazio (orientado ou não) ou carrega o exemplo, escolhe o
 // modo e toca no quadro: em Adicionar vértice cria vértices; em Conectar toca em um vértice (a ORIGEM, que ganha destaque) e em outro
 // (o DESTINO), e a aresta é criada; em Selecionar toca em um vértice ou aresta (que ganha destaque) e, pelos botões Editar e Excluir, abre a
-// folha de propriedades (rótulo, peso) ou a confirmação de exclusão; desfaz e refaz pelos botões. Arrastar ainda não existe. A store vive no escopo desta
+// folha de propriedades (rótulo, peso) ou a confirmação de exclusão, ou ARRASTA um vértice (as arestas dele acompanham o dedo e, ao soltar, a nova posição
+// vira um passo de histórico); desfaz e refaz pelos botões. A store vive no escopo desta
 // tela (provider abaixo): se a aba for desmontada, a sessão acaba, pois nada é persistido. Começar outro grafo SUBSTITUI o atual na hora
 // (sem confirmação), e desfazer não o traz de volta (o histórico é zerado).
 //
 // O MESMO detector entrega o toque, e o MODO decide o caminho, um só por toque: `connect` → `store.connectTap` (máquina de estados do
 // núcleo, origem pendente na store); `select` → `tapToSelectionAction` (selecionar ou limpar); `add-vertex` → `tapToEditorAction` (criar vértice).
 // Com a folha de propriedades aberta nenhum toque chega ao canvas (o `Modal` o cobre e `onCanvasTap` também confere).
+//
+// ARRASTO (3.9). O mesmo detector (`CanvasGestureDetector`) também entrega o arrasto, a um `VertexDragController` criado aqui. Ele só começa no modo
+// Selecionar, com o dedo sobre um vértice e sem a folha aberta; durante o gesto a tela NÃO muda (o grafo, o layout e o histórico ficam parados) e o
+// `LiveGraphRenderer`, que assina o controlador, desenha a prévia; ao soltar entra UM `move-vertex`. Começar outro grafo, carregar o exemplo e
+// desmontar descartam o arrasto sem confirmar.
 //
 // CÂMERA. Ela NÃO está na store e NÃO é recalculada a cada edição: o modo da câmera é decidido só ao começar uma sessão.
 // - grafo novo: câmera NEUTRA (a origem do mundo no canto do quadro; cada toque cria o vértice no mesmo ponto em dp);
@@ -62,7 +68,7 @@ export function LabScreen() {
 }
 
 const PLANNED = [
-  'Arrastar vértices e ampliar ou deslocar o quadro com gestos.',
+  'Ampliar e deslocar o quadro com gestos.',
   'Ver o mesmo grafo como lista de adjacência e como matrizes.',
   'Executar BFS e DFS passo a passo, com explicação de cada passo.',
   'Comparar a complexidade de tempo e de espaço dos algoritmos.',
@@ -105,6 +111,15 @@ export function LabContent() {
     return buildGraphScene(graph, layout, camera, { viewport: { width, height } });
   }, [graph, layout, camera, width, height]);
 
+  // O arrasto de vértice: o controlador é criado uma vez e recebe o contexto atual depois de cada renderização.
+  const drag = useVertexDragController(store, {
+    camera,
+    viewport: width === undefined || height === undefined ? undefined : { width, height },
+    scene,
+    // sem grafo começado o canvas nem existe (não há detector); só a folha aberta tira o toque do canvas
+    enabled: sheet === undefined,
+  });
+
   const onCanvasLayout = (event: LayoutChangeEvent): void => {
     const next = Math.round(event.nativeEvent.layout.width);
     setMeasuredWidth((current) => (current === next ? current : next));
@@ -132,6 +147,7 @@ export function LabContent() {
 
   const startNewGraph = (directed: boolean): void => {
     serial.current += 1;
+    drag.cancel();
     setSheet(undefined);
     setLoadError(undefined);
     setStarted(true);
@@ -146,6 +162,7 @@ export function LabContent() {
       return;
     }
     const exampleLayout = circularLayout(example.value);
+    drag.cancel();
     setSheet(undefined);
     setLoadError(undefined);
     setStarted(true);
@@ -156,15 +173,22 @@ export function LabContent() {
   const isEmpty = graph.vertices.length === 0;
   return (
     <>
-      <Screen title="Laboratório" subtitle="Comece um grafo, adicione vértices e arestas tocando no quadro, e selecione para editar ou excluir.">
+      <Screen title="Laboratório" subtitle="Comece um grafo, adicione vértices e arestas tocando no quadro, e selecione para editar, excluir ou arrastar.">
         {started ? (
           <>
             <ModeBar />
             <View style={styles.block}>
-              <CanvasTapDetector onTap={onCanvasTap}>
+              <CanvasGestureDetector onTap={onCanvasTap} drag={drag.handlers}>
                 <View testID="canvas-area" onLayout={onCanvasLayout} style={styles.canvasArea}>
                   {scene !== undefined && width !== undefined && height !== undefined ? (
-                    <SvgGraphRenderer scene={scene} width={width} height={height} highlightedVertexId={connectSource} selection={selection} />
+                    <LiveGraphRenderer
+                      controller={drag}
+                      scene={scene}
+                      width={width}
+                      height={height}
+                      highlightedVertexId={connectSource}
+                      selection={selection}
+                    />
                   ) : (
                     <View style={styles.pending} />
                   )}
@@ -186,7 +210,7 @@ export function LabContent() {
                     style={[StyleSheet.absoluteFill, styles.border, { borderColor: colors.border }]}
                   />
                 </View>
-              </CanvasTapDetector>
+              </CanvasGestureDetector>
               <ConnectStatus />
               <SelectionStatus
                 onEdit={(chosen) => {

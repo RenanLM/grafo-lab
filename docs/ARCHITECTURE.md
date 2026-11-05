@@ -767,8 +767,8 @@ unidades de tela (≈ 48 dp) é independente do desenho.
   geometria das arestas e identificação por posição (3.3: `edgeGeometry`, `edgeGeometries`, `hitTestVertex`, `hitTestEdge`,
   `hitTest`); comandos do editor, histórico e mensagens de erro (3.4: `applyAction`, `createEditorState`, `nextFreeLabel`,
   `graphErrorMessage`); cena do grafo e enquadramento inicial (3.5: `buildGraphScene`, `fitCameraToGraph`,
-  `graphContentBounds`); toque em ação (3.6: `tapToEditorAction`); máquina de estados do modo Conectar e texto de estado (3.7: `connectStep`, `reconcileConnection`, `tapToConnectTransition`, `connectStatusMessage`); seleção por toque, conversão do texto de peso, propriedades e exclusão com confirmação (3.8: `tapToSelectionAction`, `selectionStatusMessage`, `parseWeightInput`, `describeProperties`, `describeDeletion`, `confirmedDeletionAction`). Hoje a pasta tem `index.ts` (contrato e exportações), `camera.ts` (3.1), `layout.ts` (3.2),
-  `geometry.ts` (3.3), `editor.ts` e `error-messages.ts` (3.4), `scene.ts` (3.5), `tap.ts` (3.6), `connect.ts` e `connect-status.ts` (3.7), `selection.ts`, `weight-input.ts`, `properties.ts` e `deletion.ts` (3.8), seus testes (`*.test.ts`, mais
+  `graphContentBounds`); toque em ação (3.6: `tapToEditorAction`); máquina de estados do modo Conectar e texto de estado (3.7: `connectStep`, `reconcileConnection`, `tapToConnectTransition`, `connectStatusMessage`); seleção por toque, conversão do texto de peso, propriedades e exclusão com confirmação (3.8: `tapToSelectionAction`, `selectionStatusMessage`, `parseWeightInput`, `describeProperties`, `describeDeletion`, `confirmedDeletionAction`); arrasto de vértice e a prévia (3.9: `startDrag`, `dragPreviewPosition`, `finishDrag`, `planDragPreview`, `buildDragPreview`). Hoje a pasta tem `index.ts` (contrato e exportações), `camera.ts` (3.1), `layout.ts` (3.2),
+  `geometry.ts` (3.3), `editor.ts` e `error-messages.ts` (3.4), `scene.ts` (3.5), `tap.ts` (3.6), `connect.ts` e `connect-status.ts` (3.7), `selection.ts`, `weight-input.ts`, `properties.ts` e `deletion.ts` (3.8), `drag.ts` e `drag-preview.ts` (3.9), seus testes (`*.test.ts`, mais
   `boundary.test.ts`), e `test-helpers.ts` (gerador de sementes e `deepFreeze`, só para testes).
 - **C. Interface** (`src/features/graph-editor/`): desenha vértices e arestas, recebe os toques e os traduz em
   **ações** do núcleo, mostra controles, propriedades e representações, executa animações. Não decide regras do grafo
@@ -1230,17 +1230,17 @@ abrir um documento). A origem pendente do modo `connect` mora na store, ao lado 
 lógica privada `defaultLabel` do domínio (que não é exportada e não foi alterada). Um `Graph` restaurado pode ser uma cópia
 rasa nova (só quando o contador sobe), então comparar por referência não vale; compare por conteúdo.
 
-### Interação por toque (arquitetura; implementados: hit-testing no 3.3, toque que cria vértice no 3.6, dois toques que conectam no 3.7 e toque que seleciona no 3.8)
+### Interação por toque (arquitetura; implementados: hit-testing no 3.3, toque que cria vértice no 3.6, dois toques que conectam no 3.7, toque que seleciona no 3.8 e arrasto de vértice no 3.9)
 
 - **Um detector para o canvas**, com gestos compostos (API de hooks do Gesture Handler 3: `useTapGesture`,
   `usePanGesture`, `usePinchGesture`, `useLongPressGesture` e as composições `useSimultaneousGestures`,
   `useExclusiveGestures`, `useCompetingGestures`; não misturar com a API antiga de `Gesture.*`). Os nomes exatos e o
-  comportamento de cada composição serão conferidos no 3.10, na versão instalada (`useTapGesture` e `GestureDetector` já foram conferidos no 3.6).
+  comportamento de cada composição foram conferidos na versão instalada: `useTapGesture` e `GestureDetector` no 3.6 e, no 3.9, `usePanGesture` (ativação manual) e `useCompetingGestures` (o toque e o arrasto de vértice competem; a pinça e o pan da câmera entram no 3.10).
 - **Alvo de toque em unidades de tela, independente do zoom:** ≈ 48 dp de diâmetro (raio ≈ 24 dp) em volta do centro do
   vértice, calculado depois de converter o centro do mundo para a tela. O desenho pode ser menor (ou maior com zoom),
   mas **o alvo nunca encolhe** abaixo disso. Sobreposição: o vértice mais perto do toque vence, e o empate vai para a
   ordem de inserção. Arestas têm tolerância própria em dp de tela e só são acertadas fora dos vértices. **Implementado**
-  em `hitTestVertex`, `hitTestEdge` e `hitTest` (`core/geometry.ts`, 3.3); o toque os chama desde o 3.6 (`tapToEditorAction`) , o 3.7 (`tapToConnectTransition`) e o 3.8 (`tapToSelectionAction`); arrasto, pinça e toque longo compostos ficam para o 3.10.
+  em `hitTestVertex`, `hitTestEdge` e `hitTest` (`core/geometry.ts`, 3.3); o toque os chama desde o 3.6 (`tapToEditorAction`) , o 3.7 (`tapToConnectTransition`) e o 3.8 (`tapToSelectionAction`) e o arrasto do 3.9 (`startDrag`); o pan da câmera, a pinça e o toque longo compostos ficam para o 3.10.
 - **Modo explícito** (Selecionar, Adicionar vértice, Conectar) e uma função pura `(modo, toque, o que há sob ele) → ação`.
 
   | Modo | Toque | Arrasto que começa em vértice | Arrasto no fundo | Pinça | Toque longo |
@@ -1250,8 +1250,9 @@ rasa nova (só quando o contador sobe), então comparar por referência não val
   | Conectar | escolhe origem e depois destino | desloca a câmera | desloca a câmera | zoom | cancela |
 - **Um gesto, um dono.** Uma segunda ponta de dedo durante um arrasto de vértice o cancela (a posição volta) e passa a
   pinça; `onFinalize` com `canceled` desfaz qualquer prévia (conexão pendente, posição provisória).
-- **Durante o arrasto** a posição vive em valor compartilhado do Reanimated (thread da interface) e só vai para a store
-  ao soltar (um passo de histórico). A câmera e a seleção ficam fora do histórico.
+- **Durante o arrasto** (3.9) a posição vive na PRÉVIA, no JavaScript (controlador + `useSyncExternalStore`), e só vai para a store
+  ao soltar (um passo de histórico). A decisão original (valor compartilhado do Reanimated, na thread de interface) **não foi adotada** por falta de evidência de benefício:
+  veja "Arrastar vértices", em "Alternativas avaliadas" e na medição no Android. A câmera e a seleção ficam fora do histórico.
 
 ### Cena e renderização SVG (incremento 3.5: `core/scene.ts`, `graph-renderer.ts`, `svg-graph-renderer.tsx`)
 
@@ -1338,7 +1339,7 @@ importante some em um dos temas, e o desenho troca de tema ao vivo. **Não verif
 aparelho físico, outras larguras (cobertas só por Jest: 320, 360, 411 e 600 dp), rotação, escala de fonte do sistema, desempenho
 com muitos vértices e toque. Os testes Jest **não** substituem essa verificação.
 
-### Modo Adicionar vértice e toque (incremento 3.6: `core/tap.ts`, `canvas-tap-detector.tsx`, `editor-controls.tsx`, `new-graph.ts`)
+### Modo Adicionar vértice e toque (incremento 3.6: `core/tap.ts`, `canvas-tap-detector.tsx` (renomeado `canvas-gesture-detector.tsx` no 3.9), `editor-controls.tsx`, `new-graph.ts`)
 
 O aluno começa um grafo vazio (orientado ou não), escolhe **Adicionar vértice** e toca no quadro: cada toque em área vazia cria um
 vértice **sob o dedo**; Desfazer e Refazer ficam na tela. **Não existiam no 3.6** (e não foram simulados) a conexão de vértices (feita no 3.7), seleção por
@@ -1683,6 +1684,136 @@ seleção permanecendo após a remoção, folha dentro da `Screen`, linha de est
 a excluir pergunta sempre, mesmo para um vértice isolado; não há exclusão em lote nem seleção múltipla; a mensagem de erro de dentro da folha e a instrução não foram validadas com leitor de tela; "Novo grafo" ainda substitui o grafo atual sem confirmação (3.6); a folha não foi testada com a escala de fonte do sistema maior.
 
 
+### Arrastar vértices (incremento 3.9: `core/drag.ts`, `core/drag-preview.ts`, `canvas-gesture-detector.tsx`, `vertex-drag-controller.ts`, `vertex-drag.tsx`, prévia no SVG)
+
+No modo **Selecionar**, um dedo que desce sobre um vértice e anda o arrasta: o vértice, o rótulo, o destaque de seleção e **as arestas incidentes** (com setas, pesos e arcos opostos) acompanham o dedo, e ao soltar a posição vira **um** passo de
+histórico (`move-vertex`, 3.4). **Não existem** (e não foram simulados) pan e zoom da câmera, SQLite nem algoritmos; não há modo novo, nem criação de arestas por arrasto. O domínio e o JSON v1 não mudaram; a câmera fica **fixa** durante o gesto e
+não há rolagem automática.
+
+**Contrato puro (`core/drag.ts`, TypeScript sem React).** `startDrag(estado, câmera, ponto, viewport, opções?) → DragSession | undefined` só começa se: o modo é `select`; o ponto vale (câmera e `viewport` válidos, ponto finito e DENTRO do canvas, a mesma validação do toque,
+`hitTapTarget`); o `hitTest` do 3.3 (a MESMA função do toque, nenhuma conta de proximidade nova; prioridade vértice > aresta > fundo; alvo mínimo de 48 dp) responde um **vértice**; e esse vértice tem posição finita. Começar sobre uma aresta ou o fundo não devolve sessão,
+então nada é movido e a página rola. O vértice é identificado **uma vez**, aqui; a sessão guarda o id técnico, e passar sobre outro círculo não o troca. A sessão é imutável (congelada, sem alias): `graphId`, `vertexId`, `startWorldPosition`, `startScreenPoint`,
+`grabOffset`, a `camera` copiada e os objetos `Graph` e `GraphLayout` do início, **por referência**, para saber por identidade se ainda valem (`isDragSessionValid`: modo `select` e os MESMOS objetos; ids iguais não bastam, porque dois grafos usam `v1`, `v2`…).
+
+| Função | O que faz |
+| --- | --- |
+| `startDrag` | regras acima; devolve a sessão ou nada |
+| `dragActivated(sessão, ponto, limiar?)` | o dedo andou `≥ 10 dp` (`DRAG_START_DISTANCE_DP`, igual ao `maxDistance` do toque)? |
+| `dragPreviewPosition(sessão, deslocamento)` | posição do vértice no mundo durante o gesto |
+| `dragFinalPosition(sessão, deslocamento)` | a MESMA fórmula, para a posição que se confirma (o que se viu é o que fica) |
+| `isDragSessionValid(sessão, estado)` | a sessão ainda é do editor atual |
+| `finishDrag(sessão, estado, fim)` | `release` → `{ kind: 'move', action }` ou `discard` (`stale`, `invalid`, `unchanged`); `cancel` → **sempre** `discard` (`cancelled`), nunca uma ação |
+| `dragCommitAction(sessão, estado, deslocamento)` | atalho: a ação `move-vertex` de um fim válido, ou nada |
+
+**Matemática do grab offset.** Com `tela = mundo·escala + (x, y)`: o centro inicial é `C0 = worldToScreen(câmera, posiçãoInicial)`, o grab offset é `g = P0 − C0` (`P0` = onde o dedo desceu, em dp), e o dedo, depois de andar `t` dp, está em `P = P0 + t`. Para o
+vértice não saltar para o dedo, o centro vai para `C = P − g = C0 + t`, e a posição no mundo é `screenToWorld(câmera, C) = (C0 + t − câmera.x) / escala = posiçãoInicial + t / escala`: a translação da câmera some e só a escala converte o deslocamento. O código calcula
+`posiçãoInicial + t / escala` com `screenToWorld({ x: 0, y: 0, scale }, t)` (que divide o deslocamento pela escala) e soma à posição inicial: é **exato** para `t = 0` (devolve a posição inicial sem erro de arredondamento, e por isso "soltar no mesmo lugar" não cria passo) e
+equivale a `screenToWorld(câmera, P0 + t − g)` a menos do arredondamento (os testes conferem a equivalência em sete câmeras, incluindo escalas 0,25, 1 e 4 e translações positivas e negativas). `t` é o deslocamento do dedo em dp **locais** ao canvas, nunca `absoluteX/Y`.
+
+**O defeito achado só no aparelho: `translationX/Y` não serve.** A `translationX/Y` do `usePanGesture` com ativação manual **começa em 0 no ponto da ativação**, não onde o dedo desceu (no emulador o dedo já tinha andado ~28 dp antes de o gesto ativar; o vértice ficava 28 dp atrás do dedo e o grab offset
+se perdia). O detector não a usa: entrega ao controlador o **deslocamento calculado a partir das coordenadas locais** (`x`, `y` do evento menos as de `onBegin`), que não depende desse detalhe e ainda acompanha o canvas se a página se mexer. O simulador de gestos dos testes imita esse comportamento do aparelho
+(a translação nasce na ativação), então um teste falha se o código voltar a usá-la.
+
+**O gesto (`canvas-gesture-detector.tsx`, Gesture Handler 3.3.0, API de hooks).** Um detector para o canvas inteiro, com `useCompetingGestures(pan, tap)`:
+- **Tap** como no 3.6 (`useTapGesture`, `maxDistance` 10 dp, conclui em `onDeactivate` e ignora `canceled`).
+- **Pan** (`usePanGesture`) com **`manualActivation: true`**, `maxPointers: 1`, `runOnJS: true` e **nenhum** limiar nativo (`minDistance`, `activeOffset`, `failOffset`). Um pan comum ativaria sozinho depois de poucos dp em QUALQUER ponto do canvas, e ao ativar o Gesture Handler cancela os filhos nativos do toque,
+  o `ScrollView` da página incluído: um deslize sobre o fundo deixaria de rolar. Com ativação manual o pan **nunca ativa por conta própria**: em `onBegin` (o dedo desceu, `x` e `y` locais) o controlador faz o hit-testing UMA vez e arma a sessão se acertou um vértice; em `onTouchesMove`, se há sessão armada e o dedo já andou 10 dp, o detector pede a
+  ativação (`GestureStateManager.activate`, uma vez por gesto). Sem sessão ele nunca pede: o pan fica em `BEGAN` sem fazer nada, o `ScrollView` rola como sempre e o pan termina quando o dedo sobe.
+- **Toque × arrasto (corrida).** Os dois recebem o mesmo toque e o primeiro que ATIVA cancela o outro. O toque ativa ao levantar o dedo se ele andou no máximo 10 dp e falha se andou mais; o pan só ativa (pelo JS) com 10 dp ou mais. Os dois limites são o mesmo valor (`TAP_MAX_DISTANCE_DP` e `DRAG_START_DISTANCE_DP`, um teste os iguala): até 10 dp é toque, de 10 dp em diante é arrasto (se começou em um vértice) ou deslize
+  (rolagem, no fundo). Quando o pan ativa, o `onDeactivate` do toque nunca chama `onTap`; quando o toque ativa, o pan (que nunca ativou) é cancelado e `drag.finalize` descarta a sessão sem confirmar. **Um gesto, uma operação**: arrastar não seleciona (nem desfaz a seleção que havia) e tocar não move.
+- **Relações avaliadas e não usadas:** `requireToFail` (o toque esperaria o pan falhar, atrasando cada toque até o dedo subir), `block` e `simultaneousWith` (deixariam toque e arrasto agirem juntos). A ativação manual resolve a rolagem e a corrida resolve o toque; só o necessário foi usado.
+- **Rolagem da página:** `scrollEnabled` **não** é alterado em momento algum. No aparelho, deslizes de 100, 80, 60 e 40 ms começados num vértice ativaram o arrasto (pedido → ativação em ~14 ms) sem que a página rolasse, e deslizes no fundo ou sobre uma aresta rolaram a página sem pedir ativação nenhuma (ver "Validação no Android"). Um teste confere que o `ScrollView` da tela nunca fica com `scrollEnabled: false`.
+
+**Onde cada coisa roda (thread de interface × JavaScript).** **Todos** os callbacks dos dois gestos rodam no runtime **JavaScript** (`runOnJS: true`); nenhum worklet executa código do domínio, do núcleo ou da store, e nada é despachado de um worklet. Nenhum `scheduleOnRN` é necessário. A única chamada que cruza para a thread nativa é `GestureStateManager.activate`
+(no runtime JS ele usa `_setGestureStateAsync`; dentro de um worklet usaria `_setGestureStateSync`); medido: pedido → `onActivate` em ~14 ms. Funciona com o **React Compiler** ligado: o `babel-preset-expo` com o `caller` do Metro (`supportsReactCompiler`) compila `CanvasGestureDetector`, `useVertexDragController`, `LiveGraphRenderer`, `SvgGraphRenderer` e `LabContent` com `CompileSuccess` e nenhuma desistência, e o emulador já rodava com o compilador ligado.
+O que muda com o gesto vive em `ref`s e no controlador (nenhum `ref` é lido na renderização).
+
+**Prévia transitória (`core/drag-preview.ts`).** Durante o gesto o grafo, o layout e o histórico NÃO mudam, e nada vai à store. `planDragPreview(grafo, layout, cena, câmera, vértice, opções)` roda **uma vez** ao ativar (Θ(V + E)): acha o vértice na cena e as arestas incidentes e guarda, para cada uma, o que não muda no gesto (a outra ponta, se existe o arco
+oposto, o peso, a câmera). `buildDragPreview(plano, posição)` roda a **cada atualização** (Θ(grau)): devolve o vértice e as arestas incidentes prontos, em dp. **Sem fórmula própria:** a geometria de cada aresta é a de `edgeGeometryBetween` (a mesma `buildGeometry` de `edgeGeometries`) e a conversão para a tela é a de `sceneEdgeFrom` (a mesma de `buildGraphScene`), então a seta continua apontando para o destino, os dois arcos de A → B e B → A continuam em lados opostos e o peso fica na âncora. Os testes
+comparam a prévia com a cena reconstruída (`buildGraphScene` sobre o layout com o vértice movido), em 300 grafos aleatórios (orientados ou não, com arcos opostos e pesos) e sete câmeras, e contam as chamadas: uma geometria por aresta incidente e **nenhuma** da cena inteira.
+
+**Renderização.** `GraphRendererProps.preview?: DragPreview`. O `SvgGraphRenderer` desenha cada tipo de elemento em duas camadas na ordem de empilhamento de sempre: a **estática** (`React.memo`) desenha a cena **menos** o vértice arrastado e as arestas incidentes (`preview.hiddenEdgeIds`, o MESMO objeto do plano durante todo o arrasto), e a camada da **prévia** desenha esses elementos nas posições novas. Só a segunda muda a cada atualização (Θ(grau) elementos); a estática é percorrida de novo só no começo e no fim do arrasto. As arestas da prévia ficam por cima das outras arestas e abaixo de TODOS os vértices, e o vértice arrastado por cima dos outros, então a ordem entre arestas que se cruzam
+pode diferir da cena definitiva durante o gesto. O anel de seleção, o halo da aresta selecionada e o anel da origem do Conectar procuram o elemento primeiro na prévia, e uma prévia de OUTRO grafo (`graphId` diferente, ids técnicos iguais) é ignorada. A cada atualização do dedo só o `LiveGraphRenderer` re-renderiza: ele assina a prévia do controlador por `useSyncExternalStore`, então a tela, o detector (cuja configuração é reenviada ao módulo nativo a cada renderização) e as camadas estáticas não são percorridos de novo.
+
+**Alternativas avaliadas.** (1) **Estado React na tela** com a prévia: re-renderizaria a tela e o detector a cada atualização. (2) **Refazer a cena inteira** a cada atualização (`buildGraphScene`, Θ(V + E)): medido no aparelho, 0,5 a 1,1 ms com 30 vértices e 29 arestas e 5,7 ms com 30 vértices e 56 arestas, contra 0,1 a 0,25 ms e 0,2 a 1,1 ms da prévia; funcionaria para grafos pequenos, mas custa por atualização o que a prévia
+evita e continua refazendo o desenho nativo inteiro. (3) **Valores compartilhados do Reanimated** e propriedades animadas do SVG, com a geometria das arestas em worklets: tiraria o JavaScript do caminho, mas exigiria marcar como worklets (ou copiar) as funções de `geometry.ts` e `scene.ts` (o que a regra "sem segunda fórmula" proíbe), um componente animado por aresta incidente (os hooks não podem ser dinâmicos), valores compartilhados com a topologia e testes que o Jest não reproduz. **Não adotada, por falta de evidência de benefício:** no aparelho a prévia custa de 0,1 a 1,1 ms
+no JavaScript e o que domina o quadro é o redesenho nativo do `Svg` (veja a medição abaixo: arrastar o hub de grau 29 e um vértice de grau 2 no mesmo grafo deu o mesmo tempo de quadro), que a alternativa 3 também não evita. Reavaliar se um aparelho real mostrar o JavaScript no gargalo.
+
+**Conclusão.** Ao soltar, o controlador chama `finishDrag` com o deslocamento do **evento de fim** (onde o dedo subiu; só se ele não for finito vale a última prévia): se o editor ainda é o da sessão, o vértice mudou de lugar e a posição é finita, despacha **UMA** ação `move-vertex` (o `applyAction` troca o layout e registra UM passo de histórico, sem tocar no grafo: mesmas arestas, origens, destinos, pesos, ids e contadores);
+**só depois** remove a prévia, para o desenho passar da prévia à cena definitiva sem um quadro na posição antiga. A posição final pode estar até um quadro à frente da última prévia (medido: 4 dp num deslize de 100 ms, porque o último movimento chega junto com o fim); a diferença é só o último quadro, e o vértice fica onde o dedo parou (medido: centro em 1000,5 px para o dedo em 1000 px). Soltar no mesmo lugar, com posição inválida ou com a sessão inválida não despacha nada. Soltar fora da área
+visível é válido (a câmera não se move); desfazer traz o vértice de volta.
+
+**Cancelamentos (`finishDrag(..., { kind: 'cancel' })`: nunca uma ação).** Gesto cancelado pelo sistema (`onDeactivate` com `canceled`, testado no aparelho com `motionevent CANCEL`: o vértice volta à posição original, sem passo), gesto que falha ou termina antes de ativar (`onFinalize` descarta a sessão), e tudo o que muda o editor
+**durante** o arrasto: o controlador assina a store desde a ativação e descarta na hora quando a sessão deixa de valer (troca de modo, novo grafo ou exemplo, mesmo com os mesmos ids técnicos, desfazer, refazer, remoção do vértice), sem esperar o dedo; a tela também cancela ao começar outro grafo ou carregar o exemplo e o hook cancela ao desmontar; abrir a folha de propriedades desabilita o
+arrasto e descarta o ativo. Eventos tardios do gesto depois do descarte são ignorados (nenhum `move-vertex`). Interromper por **sair da área**: o pan não cancela quando o dedo sai do canvas (`shouldCancelWhenOutside` do pan é falso); o vértice segue o dedo e pode terminar fora da área visível (a câmera não se move e não há rolagem automática). A confirmação da própria conclusão não se descarta no meio (`committing`).
+
+**Seleção e histórico.** Arrastar não muda a seleção (se o vértice arrastado está selecionado, o anel acompanha) e não cria passo por si: um arrasto concluído é UM passo; desfazer devolve o vértice à posição anterior (o mesmo objeto de layout), refazer restaura a nova, um movimento novo depois de desfazer descarta o ramo de refazer, arrasto cancelado, sem movimento ou inválido não cria passo, e os ids de vértices e arestas não andam. O histórico guarda só a mudança consolidada, nunca os quadros intermediários.
+
+**Complexidade (V vértices, E arestas, `d` = arestas incidentes ao vértice arrastado, N = amostras por curva, L = limite do histórico).**
+
+| Etapa | Custo | Quando |
+| --- | --- | --- |
+| hit-testing inicial (`startDrag`) | Θ(V) se o dedo cai num vértice; senão Θ(V + E·N) (o `hitTest`) | uma vez por gesto, ao descer |
+| plano da prévia | Θ(V + E) | uma vez, ao ativar |
+| atualização da prévia | **Θ(d)**: uma geometria e uma aresta de cena por aresta incidente, mais O(1) para o vértice | a cada atualização do dedo |
+| atualizar as geometrias incidentes | Θ(d) (cada `edgeGeometryBetween` é O(1)) | idem |
+| desenho no React | Θ(d) elementos SVG re-renderizados; as camadas estáticas (Θ(V + E)) não | idem |
+| desenho nativo | o `Svg` redesenha o quadro inteiro (Θ(V + E) comandos) a cada alteração | idem |
+| confirmar (`finishDrag` + `applyAction`) | O(1) + Θ(V) (cópia do layout, `moveVertex`) | uma vez, ao soltar |
+| registrar no histórico | Θ(L) (cópia do vetor `past`) | idem |
+| reconstruir a cena definitiva | Θ(V + E) (`buildGraphScene`) | uma vez, depois de soltar |
+
+A atualização **não** é O(1): recalcula as `d` arestas incidentes. Θ(d) vale no máximo Θ(V) num grafo simples. Comparada com refazer a cena inteira por atualização (Θ(V + E)), a prévia ganha quando `d` é pequeno em relação ao grafo.
+
+**Medição no Android (como foi feito; sem inventar FPS).** Emulador Pixel_6 (Android 13, **GPU por software** SwiftShader), Expo Go 58.0.5, build de desenvolvimento (Metro), `performance.now()` no Hermes e logs do `ReactNativeJS` (instrumentação temporária, removida); deslizes de 1,5 s por `adb shell input swipe` (≈ 25 a 33 atualizações) e
+`dumpsys gfxinfo host.exp.exponent` (`reset` antes e depois de cada gesto). Tempos do JavaScript:
+
+| Cenário | plano | atualização da prévia | confirmar (`dispatch`) | cena inteira (`buildGraphScene`) |
+| --- | --- | --- | --- | --- |
+| 4 vértices e 4 arestas (poucos), vértice de grau 2 | — | 0,3 ms (uma amostra) | — | — |
+| 30 vértices e 29 arestas, vértice de grau 2 | 0,08 a 1,58 ms | 0,10 a 0,25 ms | 0,13 a 1,70 ms | 0,54 a 1,15 ms |
+| 30 vértices e 56 arestas, vértice **de grau 29** | 0,26 ms | 0,24 a 1,09 ms (≈ 0,6) | 3,06 ms | 5,68 ms |
+
+Estrutura do quadro (`gfxinfo`, mesma máquina): arrastar o hub de grau 29 → 21 quadros em 2 s, mediana 150 ms; arrastar um vértice de grau 2 no mesmo grafo → 26 quadros, mediana 150 ms; **rolar a página sem arrasto** → mediana 77 ms (a GPU por software já limita o emulador a ≈ 13 quadros/s). Conclusões que a medição sustenta: o custo do JavaScript por atualização é de ordem de 1 ms e cresce com o grau (a prévia do hub custa ≈ 3 a 4 vezes a de grau 2), mas o tempo
+de quadro não mudou com o grau, então o gargalo é o redesenho nativo, que a prévia não elimina. Conclusões que ela **não** sustenta: o desempenho em um aparelho real, com GPU, e o intervalo de 44 a 57 ms entre atualizações vem do `adb input swipe`, não do JavaScript (fica abaixo de 60 ms mesmo com o hub).
+
+**Escala no núcleo (Node/V8, teste temporário descartado; microssegundos por chamada; grafos de grade, `E` ≈ 2·`V`, vértice arrastado com o grau indicado).** Só mostram a escala com V, E e o grau, não o Hermes (no aparelho a atualização do hub de grau 29 levou 0,24 a 1,09 ms, contra 0,16 ms aqui: de 2 a 7 vezes mais).
+
+| V | E | grau | hit (vértice) | hit (fundo) | plano | atualização da prévia | cena inteira | confirmar |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 10 | 10 | 3 | 11,8 | 51,9 | 1,9 | 22,2 | 84,9 | 6,4 |
+| 30 | 30 | 3 | 23,2 | 123,4 | 4,3 | 17,7 | 220,5 | 7,3 |
+| 30 | 56 | 29 | 21,3 | 178,4 | 7,3 | 158,0 | 335,9 | 6,9 |
+| 200 | 200 | 3 | 119,2 | 634,4 | 2,5 | 15,9 | 1196,2 | 17,3 |
+| 200 | 396 | 199 | 113,8 | 1192,8 | 18,2 | 1108,3 | 2265,7 | 18,2 |
+| 1000 | 1000 | 3 | 550,1 | 3464,2 | 11,5 | 18,4 | 6392,5 | 96,8 |
+| 1000 | 1498 | 501 | 552,7 | 4655,1 | 49,1 | 2768,7 | 8942,9 | 89,8 |
+
+Leitura: com grau 3 a atualização custa 16 a 22 µs para qualquer V de 10 a 1000 (Θ(grau), não Θ(V + E)); cresce linearmente com o grau (≈ 5,5 µs por aresta incidente) e a cena inteira cresce com V + E (de 85 µs a 8,9 ms). O ganho é grande com grau pequeno e encolhe quando o grau se aproxima de E (hub de 501 arestas: 2,8 ms contra 8,9 ms). Um vértice com **centenas** de arestas incidentes pode passar de um quadro por atualização no Hermes
+(limitação conhecida). O hit-testing sobre o fundo (Θ(V + E·N)) é o passo mais caro por gesto, mas roda uma vez, ao descer o dedo. `confirmar` inclui `finishDrag` e o `applyAction` (cópia do layout, Θ(V), e o passo de histórico).
+
+**Testes do 3.9** (171 novos; total **2561**, 50 suítes). Núcleo (projeto `editor-core`): `core/drag.test.ts` (50: o começo, em vértice, fundo, aresta, modos, bordas do canvas, câmeras e entradas inválidas e empates; o limiar de 10 dp; a posição calculada à mão com câmera neutra, `{40, −30, 2}`, escalas 0,25 e 4, coordenadas negativas, zero exato e estouro; a equivalência com `screenToWorld` e com o grab offset em 500 sorteios e sete câmeras; a validade por identidade; soltar e cancelar; desfazer, refazer e ids; imutabilidade) e `core/drag-preview.test.ts` (20: a prévia é igual à cena reconstruída em 300 sorteios, mais arestas, setas, pesos, arcos opostos, aresta sem geometria e o custo por espiões).
+Interface (projeto `app`): `canvas-gesture-detector.test.tsx` (26, +15: o protocolo da ativação manual, o deslocamento por coordenadas locais, cancelar, toque × arrasto e as relações enviadas ao módulo nativo), `vertex-drag-controller.test.ts` (37, com a store real e sem React), `lab-screen-drag.test.tsx` (36, de ponta a ponta com o gesto simulado) e `svg-graph-renderer.test.tsx` (+13, a prévia). **Mutação dirigida: 83 mutações, 80 detectadas** (3 só depois de reforçar os testes: o vértice da ação com um vértice que não é o primeiro, a ativação depois de o editor mudar entre descer e ativar e a relação entre toque e arrasto; a primeira versão desta última era inválida, por um import que faltava, e foi refeita) e **3 equivalentes**: `noNegativeZero` na posição (o layout e o `screenToWorld` já normalizam o zero, então `-0` nunca chega ali), o `drag.cancel()` da tela ao começar outro grafo ou carregar o exemplo (a assinatura da store já descarta o arrasto: defesa em profundidade, mantida) e o `started &&` do contexto (sem grafo começado o canvas nem existe; removido). Cobrem: grab offset ignorado, divisão pela escala omitida, coordenadas absolutas tomadas como locais, vértice errado, hit-testing refeito durante o movimento, modo Selecionar ignorado, arrasto sobre o fundo ou a aresta, cancelamento que cria histórico, ação a cada quadro, duas operações ao soltar, layout alterado antes da conclusão, arestas paradas, arcos com direção errada, ativação pedida sem sessão (rolagem presa), prévia de outro grafo, reset ou desmontagem que preservam a prévia e desfazer que não restaura a posição. Os dez arquivos de produção foram restaurados byte a byte (hash). O que o Jest não vê (a negociação com o `ScrollView`, o atraso do JavaScript, a origem da `translationX/Y`, o último movimento chegando com o evento de fim) só apareceu no emulador.
+
+**Validação no Android (emulador, toques reais por `adb`: `input motionevent DOWN/MOVE/UP/CANCEL` e `input swipe`; temas claro e escuro).**
+Ambiente: emulador `Pixel_6` (Android 13, GPU por software), Expo Go 58.0.5, Metro com `adb reverse`; tema claro (padrão) e escuro (`adb shell cmd uimode night yes`); coordenadas em pixels (1 dp = 2,625 px); a posição do círculo foi medida **nos pixels das capturas** (contorno azul do vértice) e comparada com a do dedo, e o quadro com `uiautomator dump`.
+- **Arrasto de B em A—B—C (Conectar A–B e B–C, depois Selecionar).** Com `input motionevent DOWN/MOVE/UP` em passos, B, o rótulo e as **duas arestas acompanham o dedo durante o gesto** (captura no meio dele); A e C não se mexem; soltar confirma. Com o vértice **fora do centro** (dedo a +15 px e +10 px do centro), o dedo em (555, 1011) deixou o centro de B em (540, 1001): o grab offset é mantido.
+- **Rolagem da página.** Deslize iniciado no **fundo** do quadro: a página rolou (o quadro foi de y = 751 para 128 px) e **nenhum pedido de ativação** foi feito; deslize iniciado sobre uma **aresta**: idem, e nenhum vértice se moveu. Deslizes **rápidos** de 600 px sobre um vértice, de **100, 80, 60 e 40 ms** (`input swipe`): o arrasto ativou (pedido → `onActivate` em ≈ 14 ms), a posição foi confirmada e a página **não** rolou. Por isso `scrollEnabled` nunca é alterado.
+- **Toque curto** em A: seleciona (o toque conclui, o pan é cancelado pela corrida), sem arrasto.
+- **Cancelamento nativo** (`input motionevent CANCEL` com B a 300 px da origem): a prévia some, B volta à posição de antes (medido por pixel: 1000,5 px) e o gesto chega como `canceled = true`; nenhum passo de histórico.
+- **Desfazer e Refazer** (botões): desfazer devolve B à posição anterior e refazer o leva de novo para a nova (1000,5 px e fora do quadro, medidos nas capturas); um refazer depois de desfazer repete.
+- **Fora da área visível.** Arrastar B até além da borda de cima do quadro e soltar: as arestas ficam recortadas na borda, o resumo avisa "Parte do grafo está fora da área visível", a câmera e os outros blocos não se mexem; desfazer o traz de volta.
+- **Grafo orientado** com A → B, B → A e B → C (também em tema escuro): os dois arcos opostos continuam curvos, em lados opostos, as pontas das setas continuam no destino e a de B → C acompanha, durante o gesto e depois de soltar; o centro de B ficou no dedo (540, 1039 para o dedo em 540, 1040).
+- **Outros modos.** Em Adicionar vértice, um toque cria D e um deslize começado sobre um vértice rola a página sem mover nem criar nada; em Conectar, D → C cria a aresta (4 arestas).
+- **Canvas estável e abas.** O quadro permaneceu em [42,751][1037,1646] antes e depois de cada arrasto; Início → Laboratório preserva o grafo; as propriedades abrem depois de mover um vértice (título "Vértice B", com o anel de seleção seguindo).
+- **Desempenho** (medição do JavaScript e do quadro, acima): grafos de 30 vértices com 29 e com 56 arestas, vértice de grau 2 e hub de grau 29.
+- **Defeitos reais achados só no aparelho (os testes passavam) e corrigidos:** (1) a `translationX/Y` do Gesture Handler nasce na **ativação**, não onde o dedo desceu: o vértice ficava ~28 dp atrás do dedo (a captura mostrou o centro de B a 1224 px com o dedo em 1300 px); agora o deslocamento vem das coordenadas locais e o simulador de gestos imita o comportamento real. (2) O último movimento chega **junto com o evento de fim**:
+  confirmar a última prévia deixava o vértice 4 dp aquém de onde o dedo subiu (1238 px contra 1250 px); agora vale a posição do evento de fim.
+- **Conferência final com o código sem a instrumentação:** novo grafo A, B, C; arrastar B até (600, 1250): centro em 1249,5 px, igual depois de soltar; um arrasto cancelado devolve o vértice à última posição confirmada.
+
+**Limitações.** (1) Sem teste de **dois dedos** (o `adb` não gera multitoque): o `maxPointers: 1` só vale para o início, e o comportamento de um segundo dedo com o arrasto ativo não foi verificado. (2) Sem TalkBack, iOS, aparelho físico, rotação, escala de fonte e desempenho em aparelho real (a medição acima é de um emulador com GPU por software). (3) Um deslize **tão rápido que o dedo sobe antes do pedido de ativação chegar** (o pedido leva ~14 ms) não vira arrasto; nada é movido. (4) Soltar fora da área visível deixa o vértice fora do
+quadro (desfazer o traz de volta; enquadrar vem com a câmera, 3.10). (5) Não há rolagem automática nem câmera móvel. (6) O arrasto não seleciona o vértice (e não há realce de "levantado"): a única pista é o próprio movimento e, se ele estava selecionado, o anel. (7) A ordem de empilhamento entre arestas que se cruzam pode diferir da cena definitiva durante o gesto. (8) A primeira abertura do Expo Go depois do boot do emulador mostrou duas vezes a tela vermelha "runtime not ready" (já vista no 3.8); reabrir resolveu, e não foi investigada.
+
 ### Procedimento de teste em Android
 
 1. Subir o emulador: `& "$env:ANDROID_HOME\emulator\emulator.exe" -avd Pixel_6` (ou pelo Android Studio) e esperar o boot.
@@ -1704,12 +1835,13 @@ a excluir pergunta sempre, mesmo para um vértice isolado; não há exclusão em
    (200 ms) começando em um vértice: um deslize não pode escolher a origem nem criar aresta.
 8. Para a folha de propriedades: abra-a, toque no campo (o teclado aparece) e toque em **Salvar uma única vez** com ele aberto: tem de salvar e fechar (o toque capturado por um `ScrollView` ancestral só se manifesta assim). Confira os limites dos botões com `adb shell uiautomator dump`
    (o último botão precisa terminar acima da barra do sistema) e digite acentos com a pressão longa do teclado e `adb shell input motionevent DOWN/MOVE/UP` (o `adb shell input text` não digita "í"). O Metro com `CI=1` não observa arquivos; para ver mudanças de código sem reiniciar, rode `npx expo start` sem `CI`.
-9. Encerrar: `adb emu kill` e parar o Metro.
+9. Para o arrasto (3.9): `adb shell input motionevent DOWN X Y`, `MOVE X Y` (em passos, com uma pausa de ~150 ms) e `UP X Y` (ou `CANCEL X Y` para o cancelamento nativo) deixam o dedo parado no meio do gesto, para fotografar a prévia; `adb shell input swipe X1 Y1 X2 Y2 40` a `300` mede a corrida com o `ScrollView`. Meça o centro do círculo nos pixels da captura (contorno azul) e o quadro com `uiautomator dump`. `adb shell dumpsys gfxinfo host.exp.exponent reset` antes do gesto e sem `reset` depois dão a estrutura do quadro (o emulador usa GPU por software). No Git Bash do Windows, defina `MSYS_NO_PATHCONV=1` (ou use o PowerShell), senão `/sdcard/...` vira `C:/Program Files/Git/sdcard/...`.
+10. Encerrar: `adb emu kill` e parar o Metro.
 
 ### Limitações desta etapa
 
 Só TypeScript, Jest e o emulador Android com Expo Go foram executados. **iOS, aparelho físico, TalkBack/VoiceOver,
-pinça, development build e desempenho com muitos elementos não foram verificados.** A tela de teste do emulador foi
+pinça, dois dedos durante um arrasto, development build e desempenho em aparelho real com muitos elementos não foram verificados.** O arrasto de um dedo foi verificado no emulador (veja "Arrastar vértices"). A tela de teste do emulador foi
 descartada: o repositório não tem nenhum editor nem tela falsa.
 
 ## Estratégia de testes
@@ -1889,6 +2021,7 @@ descartada: o repositório não tem nenhum editor nem tela falsa.
 - **Seleção, propriedades e exclusão do 3.8** (249 testes novos; total **2390**). `core/selection.test.ts` (31), `core/weight-input.test.ts` (66), `core/properties.test.ts` (24) e `core/deletion.test.ts` (22) no projeto `editor-core`; `properties-sheet.test.tsx` (53) e
   `lab-screen-select.test.tsx` (33, o fluxo de ponta a ponta com o gesto simulado) no projeto `app`; mais `editor-controls`, `svg-graph-renderer` e `editor-store`. **90 mutações dirigidas, 90 detectadas** (5 só depois de reforçar os testes), nenhuma equivalente. O que o Jest não vê (a folha cortada no Android e o
   toque capturado pelo `ScrollView` com o teclado aberto) só apareceu no emulador, e um teste estrutural agora o guarda. Detalhes em "Seleção, propriedades e exclusão".
+- **Arrasto de vértices do 3.9** (171 testes novos; total **2561**). `core/drag.test.ts` (50) e `core/drag-preview.test.ts` (20) no projeto `editor-core`; `canvas-gesture-detector.test.tsx` (26, +15), `vertex-drag-controller.test.ts` (37), `lab-screen-drag.test.tsx` (36, de ponta a ponta com o gesto simulado e a translação imitando o aparelho) e `svg-graph-renderer.test.tsx` (+13) no projeto `app`. **83 mutações dirigidas, 80 detectadas** (3 só depois de reforçar os testes) e 3 equivalentes. Dois defeitos só apareceram no emulador (a `translationX/Y` que nasce na ativação e o último movimento que chega com o evento de fim), e os testes agora os guardam. Detalhes em "Arrastar vértices".
 - **Ambiente de testes das bibliotecas do editor** (`graph-editor/native-stack.test.tsx`, projeto `app`): SVG
   (`Svg`, `G`, `Line`, `Circle`, `Text`) renderiza com suas propriedades; toque e arrasto simulados por
   `createGestureController` atualizam a tela; um componente com valor compartilhado e estilo animado monta. Não testa o

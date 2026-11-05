@@ -130,11 +130,11 @@ estão em `ARCHITECTURE.md`):
 A etapa 3.4B registrou a tabela comparativa e as medições em `ARCHITECTURE.md`; limites de tamanho para a interface
 só depois de medir em Hermes e em Android com poucos recursos (tarefa 4.6).
 
-## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 a 3.8 concluídos; os demais aguardam autorização)
+## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 a 3.9 concluídos; os demais aguardam autorização)
 
 Só os incrementos 3.0 (infraestrutura), 3.1 (câmera pura), 3.2 (`GraphLayout` puro), 3.3 (geometria das arestas e
 hit-testing puros), 3.4 (núcleo de edição, histórico e store Zustand), 3.5 (renderizador SVG somente leitura e exemplo no
-Laboratório), 3.6 (modo Adicionar vértice, toque no canvas e desfazer/refazer) , 3.7 (modo Conectar) e 3.8 (seleção, propriedades e exclusão) foram feitos; **já é possível construir e editar grafos completos tocando no canvas, mas ainda não arrastar vértices, ampliar nem deslocar o quadro**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
+Laboratório), 3.6 (modo Adicionar vértice, toque no canvas e desfazer/refazer) , 3.7 (modo Conectar), 3.8 (seleção, propriedades e exclusão) e 3.9 (arrastar vértices) foram feitos; **já é possível construir, editar e reposicionar grafos completos no canvas, mas ainda não ampliar nem deslocar o quadro**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
 quando houver regra nova e uma mensagem de commit. Tamanhos: **S** (um módulo puro e seus testes) e **M** (lógica +
 interface). Ordem como no prompt mestre: renderizar, criar, conectar, selecionar; **depois** arrastar, deslocar e
 ampliar, em incrementos separados.
@@ -183,8 +183,8 @@ ampliar, em incrementos separados.
 5. **Rótulos no SVG:** `Text` do `react-native-svg` × `Text` do React Native sobreposto. O primeiro não acompanha o
    tamanho de fonte do sistema; **decidir na 3.5 com um teste no emulador a 200 % de fonte**.
 6. ✅ **React Compiler × worklets** (avaliado no 3.0): sem conflito na transformação do Babel nem no emulador; fica
-   ligado. A documentação do Reanimated/Worklets consultada não trata do compilador; reavaliar na 3.9 (arrasto com
-   valores compartilhados) e usar `'use no memo'` por arquivo se necessário.
+   ligado. A documentação do Reanimated/Worklets consultada não trata do compilador. **Reavaliado na 3.9:** o arrasto não usa worklets nem valores compartilhados (a prévia é JavaScript, sem evidência de que valeria a complexidade), e o `babel-preset-expo` com o
+   `caller` do Metro compila o detector, o controlador, o renderizador e a tela com `CompileSuccess` e nenhuma desistência; nada de `'use no memo'`.
 7. **Limite de legibilidade das matrizes no painel** (provisório, ≈ 40 vértices): é de legibilidade, **não** de
    desempenho; o limite de produto continua dependendo da medição em dispositivo (tarefa 4.6).
 
@@ -437,12 +437,16 @@ ampliar, em incrementos separados.
   - *Testes:* 249 novos; total do projeto **2390**. Mutação dirigida: 90 mutações, 90 detectadas (5 só depois de reforçar os testes), nenhuma equivalente. Detalhes em `ARCHITECTURE.md`, "Seleção, propriedades e exclusão".
   - *Commit:* `feat(editor): add selection, properties sheet and deletion` (sugerido em partes no final do relatório)
 
-- ⬜ **3.9 Arrastar vértices** (M). Arrasto no modo Selecionar move o vértice, **sem mover a câmera**; posição ao vivo em
-  valor compartilhado do Reanimated (thread da interface) e gravada na store **ao soltar** (um passo de histórico).
-  - *Aceite:* o vértice acompanha o dedo com zoom e deslocamento quaisquer; soltar fora da tela é tratado; cancelar o
-    gesto restaura a posição; desfazer devolve a posição anterior.
-  - *Testes:* conversão do deslocamento de tela em deslocamento de mundo (puro, com várias câmeras); histórico; manual.
-  - *Commit:* `feat(editor): add vertex dragging`
+- ✅ **3.9 Arrastar vértices** (M). Três partes, cada uma fechada com `npm run check`. No modo **Selecionar**, o dedo que desce sobre um vértice e anda o arrasta, **sem mover a câmera**; as arestas incidentes (setas, pesos, arcos opostos) acompanham o dedo e **só ao soltar** a posição vira UM passo de histórico (`move-vertex`). **Sem** pan nem zoom da câmera, SQLite nem algoritmos; sem modo novo. O domínio e o JSON v1 não mudaram.
+  - *A. Matemática pura* (`core/drag.ts`): `startDrag` (modo `select`, ponto dentro do canvas, o MESMO `hitTest` do toque respondendo vértice, posição válida; o vértice é identificado uma vez), `dragActivated` (limiar de 10 dp, o do toque), `dragPreviewPosition` e `dragFinalPosition` (`posição inicial + deslocamento / escala`, com o grab offset preservado e exata para o deslocamento nulo), `isDragSessionValid` (identidade do grafo e do layout, não só dos ids) e `finishDrag` (soltar → uma ação `move-vertex` ou descarte; **cancelar nunca devolve ação**).
+  - *B. Gesto e prévia* (`canvas-gesture-detector.tsx`, `core/drag-preview.ts`, `vertex-drag-controller.ts`, `vertex-drag.tsx`, `svg-graph-renderer.tsx`): `usePanGesture` com **ativação manual** e `useCompetingGestures(pan, tap)` no mesmo detector; o pan nunca ativa sozinho (assim a página continua rolando no fundo e sobre as arestas) e só é ativado, pelo JavaScript, depois de 10 dp, se o dedo desceu sobre um vértice. Callbacks todos em JavaScript (`runOnJS`), nenhuma ação despachada de worklet. A prévia (`planDragPreview` uma vez, `buildDragPreview` por atualização, **Θ(grau)**) reaproveita as fórmulas da cena (`edgeGeometryBetween`, `sceneEdgeFrom`) e é desenhada por uma camada própria do SVG; a camada estática é `React.memo`.
+  - *C. Integração e Android:* um `VertexDragController` por tela, observando a store durante o arrasto (troca de modo, novo grafo ou exemplo, desfazer e remoção descartam na hora), folha de propriedades que desabilita o arrasto, descarte ao desmontar; histórico: arrasto concluído = UM passo, cancelado ou sem movimento = nenhum.
+  - *Aceite:* o vértice, o rótulo, o destaque e as arestas acompanham o dedo com qualquer câmera (escalas 0,25, 1 e 4, translações positivas e negativas); `A` e `C` não mudam; cancelar restaura; desfazer devolve a posição anterior e refazer a nova; um movimento novo depois de desfazer descarta o ramo de refazer; os ids e as arestas não mudam; deslizar no fundo ou sobre uma aresta continua rolando a página; toque curto continua selecionando; Adicionar e Conectar sem regressão.
+  - *Android (emulador Pixel_6, Expo Go 58.0.5, `adb` com `motionevent` e `swipe`, temas claro e escuro):* o roteiro de 20 itens foi percorrido (arrasto lento e rápido de 40 a 300 ms, grab offset, rolagem no fundo e sobre a aresta, toque curto, cancelamento nativo, desfazer e refazer, soltar fora do quadro, grafo orientado com arcos opostos, outros modos, abas e propriedades). **Dois defeitos reais achados só no aparelho e corrigidos:** a `translationX/Y` do pan com ativação manual nasce na ATIVAÇÃO (o vértice ficava ~28 dp atrás do dedo) e o último movimento chega junto com o evento de fim (4 dp). **Não verificado:** dois dedos durante o arrasto, TalkBack, iOS, aparelho físico, rotação e escala de fonte.
+  - *Complexidade:* hit-testing inicial Θ(V) a Θ(V + E·N), uma vez; plano Θ(V + E), uma vez; atualização da prévia **Θ(grau)** (não O(1)); desenho no React Θ(grau); o desenho nativo do `Svg` continua Θ(V + E) por atualização; confirmar Θ(V) + histórico Θ(L); reconstruir a cena depois de soltar Θ(V + E). Medido (Hermes, emulador): prévia de 0,1 a 1,1 ms, commit de 0,1 a 3 ms, cena inteira de 0,5 a 5,7 ms; o tempo de quadro não mudou com o grau (o emulador tem GPU por software).
+  - *Limitações:* um vértice com centenas de arestas incidentes pode passar de um quadro por atualização; soltar fora do quadro deixa o vértice fora da área visível (a câmera só se move no 3.10); sem rolagem automática; arrastar não seleciona; o dedo que sobe antes do pedido de ativação chegar (~14 ms) não arrasta.
+  - *Testes:* 171 novos; total do projeto **2561**. Mutação dirigida: 83 mutações, 80 detectadas (3 só depois de reforçar os testes) e 3 equivalentes. Detalhes em `ARCHITECTURE.md`, "Arrastar vértices".
+  - *Commit:* `feat(editor): add vertex dragging with live edge preview` (sugerido em partes no final do relatório)
 
 - ⬜ **3.10 Deslocar e ampliar a câmera** (M). Arrasto no fundo desloca; pinça amplia em torno do ponto focal; botões
   **Centralizar** e **Ajustar ao grafo**; limites de escala; animação respeita "reduzir movimento".

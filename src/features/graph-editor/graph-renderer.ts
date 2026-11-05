@@ -2,7 +2,7 @@ import type { ComponentType } from 'react';
 
 import type { VertexId } from '@/domain/graph';
 
-import type { EditorSelection, GraphScene } from './core';
+import type { DragPreview, EditorSelection, GraphScene } from './core';
 
 // Contrato de um renderizador de grafos: recebe uma CENA pronta (em dp de tela, calculada pelo núcleo puro) e a área de desenho,
 // e só desenha. Não trata gestos, não faz hit-testing, não conhece a store nem altera o grafo. Hoje há uma implementação
@@ -24,6 +24,12 @@ export type GraphRendererProps = {
    * grafo não sabe dele. Um id que não está na cena, ou `none`, não destaca nada.
    */
   readonly selection?: EditorSelection;
+  /**
+   * A prévia do arrasto de um vértice (3.9): o vértice arrastado e as arestas dele, já nas posições do dedo. Também é só VISUAL: o grafo, o
+   * layout e a cena (`scene`, que continua com as posições de antes do arrasto) não mudam. O renderizador desenha a cena sem esses elementos
+   * e desenha os da prévia no lugar. Uma prévia de outro grafo (`graphId` diferente da cena) é ignorada.
+   */
+  readonly preview?: DragPreview;
 };
 
 export type GraphRenderer = ComponentType<GraphRendererProps>;
