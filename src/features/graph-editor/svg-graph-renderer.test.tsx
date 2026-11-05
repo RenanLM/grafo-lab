@@ -293,3 +293,78 @@ describe('SvgGraphRenderer: atualização e tema', () => {
     expect(byId('vertex-circle-v1').props.fill).not.toStrictEqual(claro);
   });
 });
+
+// Destaque da origem pendente do modo Conectar (3.7): só desenho. O que se confere é que o anel e o contorno mais grosso aparecem no
+// vértice certo, que a geometria dele não muda, que a cena não é tocada e que o destaque não depende só de cor (forma diferente).
+describe('SvgGraphRenderer: destaque do vértice de origem', () => {
+  const drawWith = (scene: GraphScene, highlightedVertexId?: string) =>
+    render(<SvgGraphRenderer scene={scene} width={VIEWPORT.width} height={VIEWPORT.height} highlightedVertexId={highlightedVertexId} />);
+
+  it('sem destaque não há anel e todos os vértices têm o contorno normal (2)', async () => {
+    await drawWith(exampleScene());
+
+    expect(count(/^vertex-source-ring-/)).toBe(0);
+    for (const id of ['v1', 'v2', 'v3', 'v4']) expect(byId(`vertex-circle-${id}`).props.strokeWidth).toBe(2);
+  });
+
+  it('com destaque, só o vértice indicado ganha o anel tracejado e o contorno mais grosso (4)', async () => {
+    const scene = exampleScene();
+    await drawWith(scene, 'v2');
+
+    expect(count(/^vertex-source-ring-/)).toBe(1);
+    expect(byId('vertex-source-ring-v2')).toBeTruthy();
+    expect(byId('vertex-circle-v2').props.strokeWidth).toBe(4);
+    for (const id of ['v1', 'v3', 'v4']) expect(byId(`vertex-circle-${id}`).props.strokeWidth).toBe(2);
+  });
+
+  it('o anel é concêntrico e maior que o vértice, e o vértice não muda de lugar nem de raio', async () => {
+    const scene = exampleScene();
+    const vertex = scene.vertices.find((candidate) => candidate.id === 'v3')!;
+    await drawWith(scene, 'v3');
+    const ring = byId('vertex-source-ring-v3').props;
+    const circle = byId('vertex-circle-v3').props;
+
+    expect([ring.cx, ring.cy]).toStrictEqual([vertex.center.x, vertex.center.y]);
+    expect(ring.r).toBeGreaterThan(vertex.radius);
+    expect(ring.fill).toBeNull(); // `fill="none"` chega ao host do SVG como `null`: o anel é só contorno
+    expect([circle.cx, circle.cy, circle.r]).toStrictEqual([vertex.center.x, vertex.center.y, vertex.radius]);
+  });
+
+  it('não depende só de cor: o anel é TRACEJADO (forma) e o contorno é mais grosso', async () => {
+    await drawWith(exampleScene(), 'v1');
+    const ring = byId('vertex-source-ring-v1').props;
+
+    expect(ring.strokeDasharray).toBeTruthy();
+    expect(ring.strokeWidth).toBeGreaterThan(2);
+  });
+
+  it.each(['light', 'dark'] as const)('tema %s: o anel usa o token primary', async (scheme) => {
+    setScheme(scheme);
+    await drawWith(exampleScene(), 'v1');
+
+    expect(byId('vertex-source-ring-v1').props.stroke).toStrictEqual(paint(colors[scheme].primary));
+  });
+
+  it('um id que não está na cena não destaca nada (sem erro)', async () => {
+    await drawWith(exampleScene(), 'v99');
+
+    expect(count(/^vertex-source-ring-/)).toBe(0);
+  });
+
+  it('o anel fica ATRÁS do círculo do vértice (o círculo cobre o centro) e o rótulo continua por cima', async () => {
+    await drawWith(exampleScene(), 'v1');
+    const ordem = screen
+      .queryAllByTestId(/^(vertex-source-ring|vertex-circle|vertex-label)-v1$/, HIDDEN)
+      .map((node) => String(node.props.testID));
+
+    expect(ordem).toStrictEqual(['vertex-source-ring-v1', 'vertex-circle-v1', 'vertex-label-v1']);
+  });
+
+  it('o destaque não muda a cena: o mesmo objeto de cena, desenhado com e sem destaque, tem o mesmo número de vértices e arestas', async () => {
+    const scene = exampleScene();
+    const antes = JSON.stringify(scene);
+    await drawWith(scene, 'v1');
+
+    expect(JSON.stringify(scene)).toBe(antes);
+  });
+});

@@ -4,15 +4,16 @@ import { StyleSheet, useColorScheme } from 'react-native';
 import { createGraph } from '@/domain/graph';
 import { colors, minTouchTarget } from '@/theme';
 
-import { positionOf, type EditorMode } from './core';
+import { NEUTRAL_CAMERA, positionOf, type EditorMode } from './core';
 import { type EditorStore } from './editor-store';
-import { HistoryBar, ModeBar } from './editor-controls';
+import { ConnectStatus, HistoryBar, ModeBar } from './editor-controls';
 import { EditorStoreProvider, useEditorStoreApi } from './editor-store-provider';
 
-// Barra de modos e barra de histórico (ver editor-controls.tsx): só despacham ações do núcleo e mostram o estado sem depender
-// de cor (marca "✓", contorno tracejado, legenda e estados acessíveis).
+// Barra de modos, linha de estado do modo Conectar e barra de histórico (ver editor-controls.tsx): só despacham ações do núcleo (ou
+// chamam a store) e mostram o estado sem depender de cor (marca "✓", contorno tracejado, legenda e estados acessíveis).
 
 const HIDDEN = { includeHiddenElements: true } as const;
+const VIEWPORT = { width: 360, height: 324 };
 
 async function mountControls(mode: EditorMode = 'select') {
   const stores: EditorStore[] = [];
@@ -24,6 +25,7 @@ async function mountControls(mode: EditorMode = 'select') {
     <EditorStoreProvider initial={{ graph: createGraph({ id: 'g' }), mode }}>
       <Probe />
       <ModeBar />
+      <ConnectStatus />
       <HistoryBar />
     </EditorStoreProvider>,
   );
@@ -33,8 +35,14 @@ async function mountControls(mode: EditorMode = 'select') {
       store.getState().dispatch({ type: 'add-vertex', position: { x, y } });
     });
   };
+  /** Um toque no canvas no modo Conectar (câmera neutra: o ponto de tela é o do mundo). */
+  const tapConnect = async (x: number, y: number) => {
+    await act(async () => {
+      store.getState().connectTap(NEUTRAL_CAMERA, { x, y }, VIEWPORT);
+    });
+  };
   const editor = () => store.getState().editor;
-  return { store, add, editor, user: userEvent.setup() };
+  return { store, add, tapConnect, editor, user: userEvent.setup() };
 }
 
 const radio = (name: string) => screen.getByRole('radio', { name });
@@ -104,18 +112,73 @@ describe('ModeBar', () => {
     expect(editor()).toBe(antes);
   });
 
-  it('Conectar fica desabilitado, com legenda "em breve" e dica, e tocá-lo não faz nada', async () => {
-    const { user, editor } = await mountControls('add-vertex');
-    const antes = editor();
+  it('Conectar com menos de dois vértices fica desabilitado, com legenda e dica de adicionar vértices, e tocá-lo não faz nada', async () => {
+    const { user, editor, add } = await mountControls('add-vertex');
+    for (const vertices of [0, 1]) {
+      if (vertices === 1) await add(60, 60);
+      const antes = editor();
 
-    expect(radio('Conectar').props.accessibilityState).toMatchObject({ disabled: true, selected: false });
-    expect(screen.getByRole('radio', { name: 'Conectar', disabled: true })).toBeOnTheScreen();
-    expect(screen.getByText('em breve')).toBeOnTheScreen();
-    expect(radio('Conectar').props.accessibilityHint).toBe('Ainda não está disponível');
+      expect(radio('Conectar').props.accessibilityState).toMatchObject({ disabled: true, selected: false });
+      expect(screen.getByRole('radio', { name: 'Conectar', disabled: true })).toBeOnTheScreen();
+      expect(screen.getByText('2+ vértices')).toBeOnTheScreen();
+      // a legenda cabe em UMA linha: no emulador, "precisa de 2 vértices" quebrava em duas, o botão crescia ~13 dp e, ao sumir com o
+      // segundo vértice, a barra encolhia e o canvas subia no mesmo toque (os vértices A e B ficaram fora do ponto tocado)
+      expect(screen.getByText('2+ vértices').props.numberOfLines).toBe(1);
+      expect(radio('Conectar').props.accessibilityHint).toBe('Adicione pelo menos dois vértices para poder conectar');
+      await user.press(radio('Conectar'));
+
+      expect(editor()).toBe(antes);
+      expect(editor().mode).toBe('add-vertex');
+    }
+  });
+
+  it('com dois vértices o Conectar habilita (sem a legenda, sem "em breve"), e escolhê-lo usa set-mode sem criar histórico', async () => {
+    const { user, editor, add } = await mountControls('add-vertex');
+    await add(60, 60);
+    await add(200, 60);
+    const history = editor().history;
+
+    expect(screen.getByRole('radio', { name: 'Conectar', disabled: false })).toBeOnTheScreen();
+    expect(screen.queryByText('2+ vértices')).toBeNull();
+    expect(screen.queryByText('em breve')).toBeNull();
+    expect(radio('Conectar').props.accessibilityHint).toBe('Toque em um vértice para escolher a origem e em outro para escolher o destino');
+    expect(style(radio('Conectar')).borderStyle).toBe('solid');
     await user.press(radio('Conectar'));
 
-    expect(editor()).toBe(antes);
+    expect(editor().mode).toBe('connect');
+    expect(editor().history).toBe(history); // trocar de modo não é uma edição
+    expect(screen.getByRole('radio', { name: 'Conectar', selected: true })).toBeOnTheScreen();
+    expect(screen.getAllByText('✓', HIDDEN)).toHaveLength(1);
+  });
+
+  it('no modo Conectar o botão segue habilitado e ativo mesmo se os vértices diminuírem (desfazer): nada fica preso', async () => {
+    const { user, editor, add } = await mountControls('add-vertex');
+    await add(60, 60);
+    await add(200, 60);
+    await user.press(radio('Conectar'));
+    await user.press(button('Desfazer'));
+    await user.press(button('Desfazer'));
+
+    expect(editor().graph.vertices).toHaveLength(0);
+    expect(editor().mode).toBe('connect');
+    expect(screen.getByRole('radio', { name: 'Conectar', selected: true, disabled: false })).toBeOnTheScreen();
+    await user.press(radio('Adicionar vértice')); // dá para sair
     expect(editor().mode).toBe('add-vertex');
+  });
+
+  // A barra de modos fica ACIMA do canvas: se a legenda do Conectar mudasse a altura dela ao criar o segundo vértice, o canvas se
+  // deslocaria nesse toque e o vértice criado ficaria longe do dedo (o defeito que o 3.6 achou no emulador).
+  it('a altura da barra de modos é a mesma com e sem a legenda do Conectar (piso de duas linhas)', async () => {
+    const { add } = await mountControls('add-vertex');
+    const duasLinhas = 24 * 2 + 8 * 2 + 3; // 2 linhas de rótulo, enchimento e borda dos botões
+
+    const antes = style(screen.getByLabelText('Modo de edição')).minHeight;
+    await add(60, 60);
+    await add(200, 60); // a legenda do Conectar some
+    const depois = style(screen.getByLabelText('Modo de edição')).minHeight;
+
+    expect(antes).toBe(duasLinhas);
+    expect(depois).toBe(duasLinhas);
   });
 
   it('o desabilitado se distingue sem cor (contorno tracejado); os ativos têm contorno contínuo', async () => {
@@ -224,5 +287,85 @@ describe('HistoryBar', () => {
 
     expect(editor().graph.vertices).toStrictEqual([]);
     expect(editor().mode).toBe('add-vertex');
+  });
+});
+
+describe('ConnectStatus', () => {
+  it('só existe no modo Conectar', async () => {
+    const { user, add } = await mountControls('add-vertex');
+    await add(60, 60);
+    await add(200, 60);
+
+    expect(screen.queryByTestId('connect-status')).toBeNull();
+    await user.press(radio('Conectar'));
+    expect(screen.getByTestId('connect-status')).toBeOnTheScreen();
+    await user.press(radio('Selecionar'));
+    expect(screen.queryByTestId('connect-status')).toBeNull();
+  });
+
+  it('sem origem, mostra a instrução para escolher a origem e nenhum botão Cancelar', async () => {
+    const { add, user } = await mountControls('add-vertex');
+    await add(60, 60);
+    await add(200, 60);
+    await user.press(radio('Conectar'));
+
+    expect(screen.getByTestId('connect-status')).toHaveTextContent('Toque em um vértice para escolher a origem da conexão.');
+    expect(screen.queryByRole('button', { name: 'Cancelar' })).toBeNull();
+  });
+
+  it('com a origem escolhida: "Origem: A. Toque no vértice de destino." e o botão Cancelar', async () => {
+    const { add, user, tapConnect } = await mountControls('add-vertex');
+    await add(60, 60);
+    await add(200, 60);
+    await user.press(radio('Conectar'));
+    await tapConnect(60, 60);
+
+    expect(screen.getByTestId('connect-status')).toHaveTextContent('Origem: A. Toque no vértice de destino.');
+    expect(button('Cancelar').props.accessibilityHint).toBe('Cancela a conexão em andamento, sem criar nenhuma aresta');
+  });
+
+  it('o botão Cancelar limpa a origem sem mexer no grafo nem no histórico, e avisa que cancelou', async () => {
+    const { add, user, tapConnect, editor, store } = await mountControls('add-vertex');
+    await add(60, 60);
+    await add(200, 60);
+    await user.press(radio('Conectar'));
+    await tapConnect(60, 60);
+    const antes = editor();
+    await user.press(button('Cancelar'));
+
+    expect(store.getState().connection.sourceVertexId).toBeUndefined();
+    expect(editor()).toBe(antes);
+    expect(screen.getByTestId('connect-status')).toHaveTextContent('Conexão cancelada.');
+    expect(screen.queryByRole('button', { name: 'Cancelar' })).toBeNull();
+  });
+
+  it('a conexão criada é anunciada ("entre A e B" no não orientado) e a duplicata, recusada com o motivo', async () => {
+    const { add, user, tapConnect } = await mountControls('add-vertex');
+    await add(60, 60);
+    await add(200, 60);
+    await user.press(radio('Conectar'));
+    await tapConnect(60, 60);
+    await tapConnect(200, 60);
+    expect(screen.getByTestId('connect-status')).toHaveTextContent('Aresta criada entre A e B.');
+
+    await tapConnect(200, 60);
+    await tapConnect(60, 60);
+    expect(screen.getByTestId('connect-status')).toHaveTextContent(
+      'Conexão não criada. Esses dois vértices já estão ligados por uma aresta (no mesmo sentido, se o grafo é orientado).',
+    );
+  });
+
+  it('é uma região viva e a linha tem a altura do botão Cancelar (nada abaixo do canvas se mexe por causa dele)', async () => {
+    const { add, user, tapConnect } = await mountControls('add-vertex');
+    await add(60, 60);
+    await add(200, 60);
+    await user.press(radio('Conectar'));
+
+    expect(screen.getByTestId('connect-status').props.accessibilityLiveRegion).toBe('polite');
+    const alturaDoCancelar = 24 + 12 * 2 + 3; // linha, enchimento e borda do botão secundário
+    expect(style(screen.getByTestId('connect-status-row')).minHeight).toBe(alturaDoCancelar);
+    expect(alturaDoCancelar).toBeGreaterThanOrEqual(minTouchTarget);
+    await tapConnect(60, 60); // o Cancelar aparece
+    expect(style(screen.getByTestId('connect-status-row')).minHeight).toBe(alturaDoCancelar);
   });
 });

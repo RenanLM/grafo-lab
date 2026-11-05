@@ -60,7 +60,12 @@ export function ToolButton({
         ) : null}
         <RNText style={[typography.label, styles.label, { color: foreground }]}>{label}</RNText>
       </View>
-      {caption === undefined ? null : <RNText style={[typography.caption, { color: foreground }]}>{caption}</RNText>}
+      {caption === undefined ? null : (
+        // uma linha só: uma legenda que quebrasse em duas aumentaria o botão, e a barra de modos fica ACIMA do canvas (ver editor-controls.tsx)
+        <RNText numberOfLines={1} style={[typography.caption, { color: foreground }]}>
+          {caption}
+        </RNText>
+      )}
     </Pressable>
   );
 }

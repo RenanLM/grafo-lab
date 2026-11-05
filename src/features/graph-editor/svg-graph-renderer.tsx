@@ -19,23 +19,33 @@ import type { GraphRendererProps } from './graph-renderer';
 // de tela. A acessibilidade detalhada (navegar vértice a vértice) é do incremento 3.12 e a experiência com TalkBack ainda não
 // foi validada em aparelho.
 //
-// Custo: Θ(V + E) elementos SVG (um círculo e um texto por vértice; um traço por aresta, mais seta e peso quando há). Renderizar de
-// novo percorre a cena inteira; ainda não há gestos, então a cena não muda a cada quadro.
+// Destaque (3.7): `highlightedVertexId` marca a origem pendente do modo Conectar com um anel tracejado em volta do vértice e um
+// contorno mais grosso. É só desenho: a cena não é refeita (nenhuma geometria muda) e este arquivo só procura o vértice na cena,
+// O(V). O destaque não depende só de cor: o que o distingue é a FORMA (anel tracejado, contorno de 4 dp contra 2 dp).
+//
+// Custo: Θ(V + E) elementos SVG (um círculo e um texto por vértice; um traço por aresta, mais seta e peso quando há; um anel quando
+// há destaque). Renderizar de novo percorre a cena inteira; sem arrasto, a cena não muda a cada quadro.
 //
 // Limitação: o texto não é medido. O centro vertical do texto é aproximado (linha de base a 0,35 do corpo abaixo do centro) e
 // a largura da caixa do peso vem da estimativa da cena; o resultado foi conferido a olho no emulador, não calculado.
 
 const EDGE_STROKE_WIDTH = 2;
 const VERTEX_STROKE_WIDTH = 2;
+const SOURCE_VERTEX_STROKE_WIDTH = 4;
+const SOURCE_RING_GAP = 7;
+const SOURCE_RING_STROKE_WIDTH = 3;
+const SOURCE_RING_DASH = '6 4';
 const WEIGHT_BOX_RADIUS = 4;
 const BASELINE_OFFSET = 0.35;
 
 const pointsOf = (...points: readonly { x: number; y: number }[]): string => points.map((point) => `${point.x},${point.y}`).join(' ');
 
-export function SvgGraphRenderer({ scene, width, height }: GraphRendererProps) {
+export function SvgGraphRenderer({ scene, width, height, highlightedVertexId }: GraphRendererProps) {
   const { colors } = useTheme();
   const { labelFontSize } = scene;
   const edgeColor = colors.textSecondary;
+  const highlighted =
+    highlightedVertexId === undefined ? undefined : scene.vertices.find((vertex) => vertex.id === highlightedVertexId);
 
   return (
     <View
@@ -115,6 +125,20 @@ export function SvgGraphRenderer({ scene, width, height }: GraphRendererProps) {
             ),
           )}
         </G>
+        {highlighted === undefined ? null : (
+          <G>
+            <Circle
+              testID={`vertex-source-ring-${highlighted.id}`}
+              cx={highlighted.center.x}
+              cy={highlighted.center.y}
+              r={highlighted.radius + SOURCE_RING_GAP}
+              fill="none"
+              stroke={colors.primary}
+              strokeWidth={SOURCE_RING_STROKE_WIDTH}
+              strokeDasharray={SOURCE_RING_DASH}
+            />
+          </G>
+        )}
         <G>
           {scene.vertices.map((vertex) => (
             <Circle
@@ -125,7 +149,7 @@ export function SvgGraphRenderer({ scene, width, height }: GraphRendererProps) {
               r={vertex.radius}
               fill={colors.primaryMuted}
               stroke={colors.primary}
-              strokeWidth={VERTEX_STROKE_WIDTH}
+              strokeWidth={vertex.id === highlighted?.id ? SOURCE_VERTEX_STROKE_WIDTH : VERTEX_STROKE_WIDTH}
             />
           ))}
         </G>

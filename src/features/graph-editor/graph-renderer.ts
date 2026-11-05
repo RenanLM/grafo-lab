@@ -1,5 +1,7 @@
 import type { ComponentType } from 'react';
 
+import type { VertexId } from '@/domain/graph';
+
 import type { GraphScene } from './core';
 
 // Contrato de um renderizador de grafos: recebe uma CENA pronta (em dp de tela, calculada pelo núcleo puro) e a área de desenho,
@@ -12,6 +14,11 @@ export type GraphRendererProps = {
   readonly width: number;
   /** Altura da área de desenho, em dp. */
   readonly height: number;
+  /**
+   * Vértice a destacar (a origem pendente do modo Conectar). É só um estado VISUAL: a cena não muda (nenhuma geometria é refeita) e
+   * o grafo não sabe dele. Um id que não está na cena não destaca nada.
+   */
+  readonly highlightedVertexId?: VertexId;
 };
 
 export type GraphRenderer = ComponentType<GraphRendererProps>;

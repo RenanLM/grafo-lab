@@ -330,9 +330,11 @@ describe('a store não duplica regras nem puxa o que não deve', () => {
     expect(code).toContain('createEditorState(');
   });
 
-  it('o formato do estado da store segue o declarado (editor, dispatch, reset)', () => {
+  it('o formato do estado da store segue o declarado (editor, dispatch, reset e, desde o 3.7, a conexão e suas duas ações)', () => {
     const state: EditorStoreState = newStore().getState();
 
-    expect(Object.keys(state).sort()).toStrictEqual(['dispatch', 'editor', 'reset']);
+    expect(Object.keys(state).sort()).toStrictEqual(
+      ['cancelConnection', 'connectNotice', 'connectTap', 'connection', 'dispatch', 'editor', 'reset'].sort(),
+    );
   });
 });

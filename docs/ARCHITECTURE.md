@@ -767,8 +767,8 @@ unidades de tela (≈ 48 dp) é independente do desenho.
   geometria das arestas e identificação por posição (3.3: `edgeGeometry`, `edgeGeometries`, `hitTestVertex`, `hitTestEdge`,
   `hitTest`); comandos do editor, histórico e mensagens de erro (3.4: `applyAction`, `createEditorState`, `nextFreeLabel`,
   `graphErrorMessage`); cena do grafo e enquadramento inicial (3.5: `buildGraphScene`, `fitCameraToGraph`,
-  `graphContentBounds`); toque em ação (3.6: `tapToEditorAction`). Hoje a pasta tem `index.ts` (contrato e exportações), `camera.ts` (3.1), `layout.ts` (3.2),
-  `geometry.ts` (3.3), `editor.ts` e `error-messages.ts` (3.4), `scene.ts` (3.5), `tap.ts` (3.6), seus testes (`*.test.ts`, mais
+  `graphContentBounds`); toque em ação (3.6: `tapToEditorAction`); máquina de estados do modo Conectar e texto de estado (3.7: `connectStep`, `reconcileConnection`, `tapToConnectTransition`, `connectStatusMessage`). Hoje a pasta tem `index.ts` (contrato e exportações), `camera.ts` (3.1), `layout.ts` (3.2),
+  `geometry.ts` (3.3), `editor.ts` e `error-messages.ts` (3.4), `scene.ts` (3.5), `tap.ts` (3.6), `connect.ts` e `connect-status.ts` (3.7), seus testes (`*.test.ts`, mais
   `boundary.test.ts`), e `test-helpers.ts` (gerador de sementes e `deepFreeze`, só para testes).
 - **C. Interface** (`src/features/graph-editor/`): desenha vértices e arestas, recebe os toques e os traduz em
   **ações** do núcleo, mostra controles, propriedades e representações, executa animações. Não decide regras do grafo
@@ -1226,11 +1226,11 @@ histórico. Nada é copiado em profundidade, e não há compressão de históric
 
 **Limitações conhecidas.** O desfazer não restaura seleção, modo nem câmera (de propósito). Sem agrupamento de edições
 seguidas (cada rótulo ou peso é um passo). O limite de 100 passos é provisório. O histórico não é persistido (começa vazio ao
-abrir um documento). O modo `connect` ainda não guarda a origem pendente (3.7). A sequência de rótulos A, B, …, AA repete a
+abrir um documento). A origem pendente do modo `connect` mora na store, ao lado do `EditorState` (3.7). A sequência de rótulos A, B, …, AA repete a
 lógica privada `defaultLabel` do domínio (que não é exportada e não foi alterada). Um `Graph` restaurado pode ser uma cópia
 rasa nova (só quando o contador sobe), então comparar por referência não vale; compare por conteúdo.
 
-### Interação por toque (arquitetura; implementados: hit-testing no 3.3 e toque que cria vértice no 3.6)
+### Interação por toque (arquitetura; implementados: hit-testing no 3.3, toque que cria vértice no 3.6 e dois toques que conectam no 3.7)
 
 - **Um detector para o canvas**, com gestos compostos (API de hooks do Gesture Handler 3: `useTapGesture`,
   `usePanGesture`, `usePinchGesture`, `useLongPressGesture` e as composições `useSimultaneousGestures`,
@@ -1240,7 +1240,7 @@ rasa nova (só quando o contador sobe), então comparar por referência não val
   vértice, calculado depois de converter o centro do mundo para a tela. O desenho pode ser menor (ou maior com zoom),
   mas **o alvo nunca encolhe** abaixo disso. Sobreposição: o vértice mais perto do toque vence, e o empate vai para a
   ordem de inserção. Arestas têm tolerância própria em dp de tela e só são acertadas fora dos vértices. **Implementado**
-  em `hitTestVertex`, `hitTestEdge` e `hitTest` (`core/geometry.ts`, 3.3); o toque os chama desde o 3.6 (`tapToEditorAction`); arrasto, pinça e toque longo compostos ficam para o 3.10.
+  em `hitTestVertex`, `hitTestEdge` e `hitTest` (`core/geometry.ts`, 3.3); o toque os chama desde o 3.6 (`tapToEditorAction`) e o 3.7 (`tapToConnectTransition`); arrasto, pinça e toque longo compostos ficam para o 3.10.
 - **Modo explícito** (Selecionar, Adicionar vértice, Conectar) e uma função pura `(modo, toque, o que há sob ele) → ação`.
 
   | Modo | Toque | Arrasto que começa em vértice | Arrasto no fundo | Pinça | Toque longo |
@@ -1341,7 +1341,7 @@ com muitos vértices e toque. Os testes Jest **não** substituem essa verificaç
 ### Modo Adicionar vértice e toque (incremento 3.6: `core/tap.ts`, `canvas-tap-detector.tsx`, `editor-controls.tsx`, `new-graph.ts`)
 
 O aluno começa um grafo vazio (orientado ou não), escolhe **Adicionar vértice** e toca no quadro: cada toque em área vazia cria um
-vértice **sob o dedo**; Desfazer e Refazer ficam na tela. **Não existem** (e não foram simulados) conexão de vértices (3.7), seleção por
+vértice **sob o dedo**; Desfazer e Refazer ficam na tela. **Não existiam no 3.6** (e não foram simulados) a conexão de vértices (feita no 3.7), seleção por
 toque (3.8), arrasto (3.9), zoom e pan por gesto (3.10) nem edição de peso. O modo Selecionar pode ser escolhido, mas tocar no quadro
 nesse modo **não faz nada** (a dica do botão diz isso).
 
@@ -1399,7 +1399,7 @@ histórico próprio**. Trocar de modo não cria histórico (o objeto `history` �
 | --- | --- | --- | --- |
 | Selecionar | habilitado; ativo quando é o modo | ativo: fundo `primary`, "✓" e texto `onPrimary` | `radio`, `selected`, dica "Por enquanto, tocar no quadro não seleciona nada" |
 | Adicionar vértice | habilitado; ativo quando é o modo | idem | `radio`, `selected`, dica "Toque no espaço vazio do quadro para criar um vértice" |
-| Conectar | **desabilitado** até o 3.7; não responde ao toque | contorno **tracejado**, legenda "em breve" | `radio`, `disabled`, dica "Ainda não está disponível" |
+| Conectar | **desabilitado no 3.6** (o 3.7 o habilitou: ver "Modo Conectar") | contorno **tracejado**, legenda "em breve" (3.6) | `radio`, `disabled`, dica "Ainda não está disponível" (3.6) |
 | Desfazer / Refazer | habilitados só se `selectCanUndo` / `selectCanRedo` | desabilitado: contorno tracejado | `button`, `disabled` |
 
 Alvos de toque de pelo menos 48 dp (`minTouchTarget`); o rótulo quebra em duas linhas em telas estreitas, e o rótulo tem `flexShrink` para
@@ -1469,12 +1469,121 @@ reaproveitados depois de desfazer, câmera reenquadrada a cada edição, reset q
 habilitados indevidamente. As mutações do núcleo de edição (3.4) e da geometria (3.3) não foram repetidas; as 3 do histórico foram rodadas só
 contra os testes da interface, para provar que a tela também as detecta.
 
-**Limitações conhecidas.** Selecionar ainda não seleciona; Conectar está desabilitado; sem arrasto, zoom nem pan (o toque só cria
+**Limitações conhecidas.** Selecionar ainda não seleciona; Conectar só existe a partir do 3.7; sem arrasto, zoom nem pan (o toque só cria
 vértices); "Novo grafo" substitui o grafo atual sem confirmação e sem desfazer; a câmera é estática (um vértice tocado perto da borda
 pode ficar parcialmente cortado, e fora do enquadramento original do exemplo ele pode ficar fora da área visível ao girar o aparelho); o
 texto do SVG não é medido (3.5); a mensagem do quadro vazio e os rótulos não acompanham a escala de fonte do sistema com garantia (não
 testado); o `shouldCancelWhenOutside` e o toque longo (> 500 ms, que não vira toque) não foram testados no aparelho; não há persistência
 do grafo criado (a sessão acaba ao desmontar a aba).
+
+
+### Modo Conectar (incremento 3.7: `core/connect.ts`, `core/connect-status.ts`, `editor-store.ts`, `editor-controls.tsx`, destaque no SVG)
+
+O aluno escolhe **Conectar**, toca em um vértice (a **origem**, que ganha destaque) e em outro (o **destino**): o núcleo cria a aresta. Em um grafo
+orientado o resultado é A → B; em um não orientado, A—B. **A orientação é do `Graph`**: nem a máquina de estados nem a interface têm uma regra
+de orientação (ver "Orientação" abaixo). Continuam **fora**: arrastar, zoom e pan por gesto, editar rótulo ou peso, selecionar por toque e excluir
+(3.8 a 3.10). Não há linha acompanhando o dedo: o detector reconhece toques, não o movimento contínuo do ponteiro (a prévia é o destaque da
+origem, a instrução e o botão Cancelar).
+
+**Máquina de estados pura (`core/connect.ts`).** TypeScript puro, sem gesto, React, SVG nem store. Só DECIDE; não altera o grafo nem o layout, não cria
+aresta e não valida aresta (laço, duplicata, vértice inexistente e orientação são do `addEdge` do domínio, pelo `applyAction`).
+- `ConnectState = { sourceVertexId? }`: um id, nunca uma cópia do grafo. Fora do `Graph`, do `GraphLayout`, do JSON v1 e dos instantâneos do histórico.
+- `connectStep(connection, alvo, graph) → { connection, action?, outcome }`; `outcome` é `source-set`, `cancelled`, `connect` ou `ignored`.
+- `reconcileConnection(connection, editor)`: a origem só vale no modo `connect` e enquanto o vértice existe.
+- `tapToConnectTransition(editor, connection, câmera, ponto, viewport, opções?)`: identifica o alvo com `hitTapTarget` (o MESMO trecho de validação e
+  `hitTest` do 3.3 que o modo Adicionar vértice usa; foi extraído de `tapToEditorAction` sem mudar o comportamento) e passa por `connectStep`.
+
+| Estado | Alvo do toque (do `hitTest`) | Resultado | Ação |
+| --- | --- | --- | --- |
+| sem origem | vértice | **origem escolhida** (`source-set`) | nenhuma |
+| sem origem | aresta ou fundo | nada (`ignored`) | nenhuma |
+| com origem | a própria origem | **cancela** (`cancelled`), sem erro de laço | nenhuma |
+| com origem | outro vértice | **conecta** (`connect`) e LIMPA a origem | `connect(origem, destino)`, uma vez |
+| com origem | aresta ou fundo | **cancela** | nenhuma |
+| qualquer | toque inválido ou fora do canvas | `ignored`: nada muda | nenhuma |
+
+Tocar duas vezes no mesmo vértice cancela (decisão de produto): nunca cria laço e não mostra erro, porque o aluno está desistindo. `SELF_LOOP` segue
+obrigatório no domínio e no `connect` usado por outros consumidores. Escolher a origem não cria aresta, não gasta id e não entra no histórico.
+
+**Origem pendente na store (`editor-store.ts`).** Ao lado do `EditorState` matemático a store guarda dois estados TRANSITÓRIOS da sessão, fora do histórico:
+`connection` (a origem pendente) e `connectNotice` (o que o último toque do modo Conectar fez: aresta criada, recusada ou cancelada, para o aluno ler).
+A API é pequena e não repete a máquina: `connectTap(câmera, ponto, viewport)` pede a transição ao núcleo, aplica a ação `connect` pelo `applyAction` e
+guarda tudo num único `set` (nenhum assinante vê a origem limpa com o grafo ainda sem a aresta); `cancelConnection()` é o botão Cancelar. O `EditorState`
+não ganhou nenhum campo. A origem é mantida coerente pelo `dispatch` (`reconcileConnection` depois de toda ação efetiva) e pelo `reset`.
+
+**Quando a conexão é cancelada** (nenhum cancelamento altera o grafo nem cria histórico):
+1. tocar de novo na própria origem; 2. tocar no fundo; 3. tocar em uma aresta; 4. o botão Cancelar; 5. trocar de modo (`set-mode`, que entra pelo `dispatch`);
+6. "Novo grafo" ou "Carregar exemplo" (`reset`); 7. a origem deixar de existir (desfazer, refazer ou qualquer ação que remova o vértice; refazer não a traz de volta).
+Desfazer que NÃO remove a origem a mantém. Toque inválido, fora do canvas ou cancelado/falho do gesto (um deslize) não muda nada.
+
+**Orientação.** A máquina entrega origem e destino na ordem dos toques e mais nada. Orientado: A → B e B → A são arestas distintas (as duas curvas opostas do 3.3,
+cada uma com a seta no destino), e repetir A → B é `DUPLICATE_EDGE`. Não orientado: B—A repete A—B, o domínio recusa e só há uma aresta, sem seta. Os testes
+conferem as duas orientações contra o `applyAction`, sem copiar a regra.
+
+**Histórico e erros.** Uma conexão concluída é UM passo de histórico (o mesmo `commit` do 3.4); desfazer remove a aresta, refazer a devolve com o MESMO id, e uma conexão
+nova depois de desfazer usa id novo e descarta o ramo de refazer. Uma recusa (duplicata, vértice inexistente) não cria passo, não consome o contador de arestas e deixa o erro
+em `editor.error`; a origem é LIMPA depois da tentativa, e a mensagem é a do domínio em português (`editorErrorMessage`, por exemplo "Esses dois vértices já estão
+ligados por uma aresta (no mesmo sentido, se o grafo é orientado)."). O erro antigo some quando o aluno começa outra conexão ou cancela; a recusa nunca vira sucesso silencioso.
+
+**Destaque da origem (`svg-graph-renderer.tsx`).** O renderizador recebe `highlightedVertexId` e desenha um **anel tracejado** concêntrico (raio + 7 dp, 3 dp de traço, token `primary`)
+e engrossa o contorno do vértice (4 dp contra 2 dp). Não depende só de cor: a diferença é de FORMA. É só desenho: a cena (`buildGraphScene`) não é refeita ao escolher a origem
+e a geometria do vértice não muda. Funciona nos temas claro e escuro.
+
+**Instrução, aviso e acessibilidade inicial (`ConnectStatus`).** Só no modo Conectar, logo ABAIXO do canvas: "Toque em um vértice para escolher a origem da conexão." →
+"Origem: A. Toque no vértice de destino." (com o botão **Cancelar**) → "Aresta criada de A para B." (orientado) ou "Aresta criada entre A e B." (não orientado), "Conexão não
+criada. <motivo>" ou "Conexão cancelada." O texto cita o RÓTULO dos vértices, nunca o id. É uma região viva (`accessibilityLiveRegion="polite"`) e o modo ativo, a origem e o estado
+saem por texto, não só por cor. **TalkBack não foi testado**: a acessibilidade detalhada dos elementos gráficos continua sendo o incremento 3.12.
+
+**Barra de modos.** Conectar passou de "em breve" a **ativo**: escolhê-lo usa `set-mode` (sem histórico). Fica desabilitado com menos de dois vértices (contorno tracejado, legenda
+"2+ vértices" e a dica acessível "Adicione pelo menos dois vértices para poder conectar"); se o modo já está ativo (depois de desfazer vértices), o botão continua habilitado e ativo.
+
+**O canvas não se desloca (defeito achado no emulador).** A barra de modos e o que vier ANTES do canvas não podem mudar de altura num toque. Na primeira versão, a legenda do Conectar bloqueado
+("precisa de 2 vértices") quebrava em duas linhas no botão estreito e, quando o segundo vértice a fazia sumir, a barra encolhia ≈ 13 dp e o canvas subia no mesmo toque: A e B
+nasceram 13 dp acima do dedo (C, depois, no lugar certo). Correção: a legenda cabe em UMA linha ("2+ vértices", `numberOfLines={1}`) e a barra tem altura mínima fixa de duas linhas
+(67 dp). A instrução do Conectar fica DEPOIS do canvas, numa linha de altura mínima igual à do botão Cancelar (51 dp), então nem a instrução nem o Cancelar mexem em nada acima delas;
+o que está abaixo (selo, resumo, Desfazer) também não pula quando o Cancelar aparece (conferido por capturas). Os testes de Jest garantem o piso, a legenda de uma linha e a posição do
+canvas no bloco; só o emulador mostra a quebra de linha real.
+
+**Aviso "Project is incompatible with this version of Expo Go".** Investigado: o projeto instala o Expo **58.0.21** (SDK 58) e o Expo Go do emulador é o **58.0.5** (SDK 58): a mesma SDK.
+`npx expo install --check` e `npx expo-doctor` apontam só divergências de **patch e minor dentro da SDK 58** (7 pacotes: `expo` 58.0.21 → ~58.0.23, `expo-constants`, `expo-linking`,
+`expo-router`, `expo-splash-screen`, `jest-expo` e `react-native-safe-area-context` 5.10.1 → ~5.11.1); o doctor passou 19 de 20 verificações. Nada foi atualizado (a regra é não atualizar às cegas:
+isso é uma tarefa à parte, com `npx expo install --fix` e teste em aparelho). Em 3 aberturas do app nesta etapa (uma delas com `--clear`) o aviso **não reapareceu**, e o Metro não registrou
+erro. **Conclusão: aviso transitório de causa não identificada**; não houve incompatibilidade real de SDK. Observação útil: o Metro com `CI=1` roda em "modo CI, recargas desabilitadas" (não observa
+arquivos), o que já causou telas desatualizadas durante os testes; reinicie o Metro para ver código novo.
+
+**Complexidade** (V vértices, E arestas, N = 24 amostras por curva, L = limite do histórico): o hit-testing do toque é Θ(V + E·N) no pior caso; escolher ou limpar a origem é O(1) (um id)
+mais Θ(V) para conferir que o vértice existe; criar a aresta é Θ(E) (a busca de duplicata do domínio) mais o passo de histórico, Θ(L); a cena só é refeita, Θ(V + E), quando o GRAFO muda (conexão,
+desfazer, refazer), e **não** ao escolher a origem (o destaque é só uma propriedade do renderizador); o SVG tem Θ(V + E) elementos mais um anel. Tudo uma vez por toque, sem arrasto. Sem índice espacial.
+
+**Validação no Android** (emulador Pixel_6, 1080 × 2400 a 420 dpi, Expo Go 58.0.5, `adb shell input tap` com toques reais; temas escuro e claro): (1) grafo novo não orientado com A, B e C; (2) Conectar
+ativo; (3) toque em A: anel tracejado, contorno grosso, "Origem: A. Toque no vértice de destino." e Cancelar, sem o canvas mexer; (4) toque em B: aresta A—B sem seta e "Aresta criada entre A e B.";
+(5) Desfazer remove a aresta e Refazer a devolve; (6) B e depois A (não orientado) é recusado com a mensagem do domínio, ainda uma aresta; (7) cancelar tocando no fundo, na própria origem e em uma aresta;
+(8) trocar de modo com a origem pendente apaga o destaque e a instrução, e voltar a Conectar não a traz de volta; (9) um deslize rápido (200 ms) começando em A até B e outro vertical começando em C
+(que rola a página) não escolhem origem nem criam aresta; (10) grafo orientado: A → B (seta em B), B → A (duas curvas separadas, cada seta no destino certo) e A → B de novo recusado; (11) o modo Adicionar
+vértice continua criando o vértice sob o toque; (12) "Carregar exemplo" com a origem pendente a descarta (modo Selecionar, sem anel); (13) tema claro com anel e controles legíveis; (14) a navegação entre
+abas funciona e o Laboratório volta com o mesmo grafo e a mesma origem. **Defeito real achado e corrigido nessa verificação** (nenhum teste de Jest o via): o deslocamento do canvas por causa da
+legenda do Conectar (acima). **Não verificado:** TalkBack e qualquer leitor de tela, iOS, aparelho físico, pinça, arrasto e multitoque (não pertencem ao incremento), outras larguras (só Jest), rotação,
+escala de fonte do sistema, toque longo e desempenho com muitos vértices.
+
+**Testes do 3.7** (121 novos; total do projeto **2141**, 40 suítes). `core/connect.test.ts` (projeto `editor-core`, 46): a máquina com exemplos calculados à mão (primeiro e
+segundo toque, a ordem v1 → v2 e v2 → v1, cancelar na origem, no fundo e em aresta, destino inexistente, origem velha, toque inválido), `reconcileConnection` (modo, origem removida por
+desfazer e refazer), o toque com o `hitTest` real (alvo de 48 dp, prioridade vértice > aresta, câmera `{40, −30, 2}`, bordas do canvas, opções do hit-testing), a integração com `applyAction`
+nas duas orientações (A—B e B—A recusado; A → B, B → A e A → B recusado; desfazer, refazer e id novo), 500 sequências de 12 toques e 200 toques com sementes fixas, imutabilidade,
+determinismo e o texto de estado. `editor-store-connect.test.ts` (30: origem, destino, um passo de histórico, cancelamentos, sincronização com troca de modo, `reset` e desfazer, recusas
+sem histórico nem id gasto, notificações únicas), `lab-screen-connect.test.tsx` (27: o fluxo de ponta a ponta com o gesto simulado, destaque, histórico, duplicatas, cancelamentos, exemplo,
+câmera, ordem dos elementos na tela e temas), `editor-controls.test.tsx` (9 a mais: Conectar habilitado só com 2 vértices, altura da barra, `ConnectStatus`) e `svg-graph-renderer.test.tsx`
+(9 a mais: o anel). **Mutação dirigida:** 64 mutações (25 do núcleo: `connect.ts`, `connect-status.ts` e o `hitTapTarget` compartilhado; 9 da store; 3 do `connect` em `editor.ts`, vistas pela
+store e pela tela; 7 da tela; 11 dos controles e do botão; 6 do renderizador; 2 do detector; e 1 extra, a posição da mensagem do quadro vazio do 3.6). Foram detectadas **63**, 2 só depois de
+reforçar os testes (a asserção "nada vem antes do canvas" era vazia, porque `parent.children` só tem o próprio canvas e a instrução do Conectar, posta ANTES dele, passava; e as opções do
+hit-testing nunca eram passadas ao modo Conectar), e 1 é **equivalente**: tirar o `return` depois do `connectTap` na tela, porque o caminho de criar vértice já recusa qualquer modo que não seja
+Adicionar vértice. Cobrem: origem e destino invertidos, primeiro toque pedindo a aresta, segundo toque sem aresta, fundo ou aresta criando conexão, cancelamento ignorado, origem mantida depois
+de trocar de modo, `reset` que preserva a origem, duplicata no histórico, dois passos de histórico por conexão, contador consumido por recusa, ordem da aresta normalizada (A—B e B—A), destaque
+no vértice errado, instrução com o rótulo incorreto, deslize virando toque e o canvas deslocado. As baterias de mutação do domínio (Fase 2) e do núcleo (3.3 e 3.4) não foram repetidas.
+
+**Limitações conhecidas.** Sem linha que acompanhe o dedo (a prévia é o destaque, a instrução e o Cancelar); a aresta criada pelo toque não tem peso (editar peso é do 3.8); Selecionar ainda não
+seleciona; sem arrasto, zoom nem pan; "Novo grafo" substitui o grafo atual sem confirmação; o aviso do último toque some na próxima ação (não há histórico de mensagens); a instrução e o aviso não
+foram validados com leitor de tela; um grafo com rótulos muito longos faz a instrução quebrar em mais linhas (só o que está abaixo do canvas se mexe); com escala de fonte maior a barra de modos
+pode crescer (não testado).
 
 
 ### Procedimento de teste em Android
@@ -1494,7 +1603,9 @@ do grafo criado (a sessão acaba ao desmontar a aba).
    1,2 (e 1 dp = 2,625 px a 420 dpi). Para provar que rolar a página não cria vértice, use `adb shell input swipe` começando **dentro**
    do quadro (300 ms, centenas de pixels). O Expo Go mostra o menu do desenvolvedor na primeira abertura (feche pelo X), e o Metro com
    `CI=1` **não observa arquivos**: reinicie-o para ver o código novo.
-7. Encerrar: `adb emu kill` e parar o Metro.
+7. Para o modo Conectar, compare a posição de cada vértice criado com o ponto tocado (o deslocamento do canvas só aparece assim), faça os toques A e B e confira a aresta, e use `adb shell input swipe`
+   (200 ms) começando em um vértice: um deslize não pode escolher a origem nem criar aresta.
+8. Encerrar: `adb emu kill` e parar o Metro.
 
 ### Limitações desta etapa
 
@@ -1672,6 +1783,10 @@ descartada: o repositório não tem nenhum editor nem tela falsa.
   testes) e 2 equivalentes (a guarda de câmera e de ponto inválidos de `tap.ts`, que o `hitTest` repete). O simulador de gestos não mede
   distância nem sair do quadro: isso se garante pela configuração do gesto e foi conferido no emulador. Detalhes em "Modo Adicionar vértice e
   toque".
+- **Modo Conectar do 3.7** (121 testes novos; total **2141**). `core/connect.test.ts` (projeto `editor-core`, 46: a máquina com exemplos calculados à mão, `hitTest` real, as duas orientações contra o
+  `applyAction`, 500 sequências aleatórias com sementes fixas, texto de estado), `editor-store-connect.test.ts` (30), `lab-screen-connect.test.tsx` (27, o fluxo de ponta a ponta com o gesto simulado),
+  `editor-controls.test.tsx` (+9) e `svg-graph-renderer.test.tsx` (+9). **64 mutações dirigidas, 63 detectadas** (2 só depois de reforçar os testes: uma asserção de ordem no layout que era vazia e as
+  opções de hit-testing) e 1 equivalente. A quebra de linha real da legenda do Conectar, que deslocava o canvas, só apareceu no emulador. Detalhes em "Modo Conectar".
 - **Ambiente de testes das bibliotecas do editor** (`graph-editor/native-stack.test.tsx`, projeto `app`): SVG
   (`Svg`, `G`, `Line`, `Circle`, `Text`) renderiza com suas propriedades; toque e arrasto simulados por
   `createGestureController` atualizam a tela; um componente com valor compartilhado e estilo animado monta. Não testa o

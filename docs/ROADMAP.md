@@ -14,7 +14,7 @@ Legenda: ✅ concluída · 🔄 em andamento · ⬜ pendente
 | Identificadores de publicação (`android.package`, `ios.bundleIdentifier`) | Não definidos; só são exigidos para builds EAS/lojas (Fase 13). |
 | Licença do projeto | Não definida (a LICENSE do template da Expo não foi copiada). |
 | `npm audit` | 16 achados (13 baixos, 3 altos) em dependências transitivas do ferramental do Expo/Jest (`zod`, `deepmerge`); o "conserto" sugerido rebaixaria para `expo@51`, então **não foi aplicado**. Reavaliar a cada atualização de SDK. |
-| Componente de bottom sheet | Decidir na tarefa 3.7 após ler a doc da SDK vigente (`@expo/ui` BottomSheet × alternativas). |
+| Componente de bottom sheet | Decidir na tarefa 3.8 (a folha de propriedades) após ler a doc da SDK vigente (`@expo/ui` BottomSheet × alternativas). |
 
 ## Fase 0 — Diagnóstico e planejamento ✅
 
@@ -130,11 +130,11 @@ estão em `ARCHITECTURE.md`):
 A etapa 3.4B registrou a tabela comparativa e as medições em `ARCHITECTURE.md`; limites de tamanho para a interface
 só depois de medir em Hermes e em Android com poucos recursos (tarefa 4.6).
 
-## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 a 3.6 concluídos; os demais aguardam autorização)
+## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 a 3.7 concluídos; os demais aguardam autorização)
 
 Só os incrementos 3.0 (infraestrutura), 3.1 (câmera pura), 3.2 (`GraphLayout` puro), 3.3 (geometria das arestas e
 hit-testing puros), 3.4 (núcleo de edição, histórico e store Zustand), 3.5 (renderizador SVG somente leitura e exemplo no
-Laboratório) e 3.6 (modo Adicionar vértice, toque no canvas e desfazer/refazer) foram feitos; **já é possível criar vértices tocando no canvas, mas ainda não conectar, selecionar, arrastar, ampliar nem deslocar**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
+Laboratório), 3.6 (modo Adicionar vértice, toque no canvas e desfazer/refazer) e 3.7 (modo Conectar) foram feitos; **já é possível criar grafos completos tocando no canvas, mas ainda não selecionar, editar, excluir, arrastar, ampliar nem deslocar**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
 quando houver regra nova e uma mensagem de commit. Tamanhos: **S** (um módulo puro e seus testes) e **M** (lógica +
 interface). Ordem como no prompt mestre: renderizar, criar, conectar, selecionar; **depois** arrastar, deslocar e
 ampliar, em incrementos separados.
@@ -393,13 +393,34 @@ ampliar, em incrementos separados.
   - *Testes:* 117 novos; total do projeto **2020**. Mutação dirigida: 70 mutações, 68 detectadas (5 só depois de reforçar os testes) e 2 **equivalentes**. Detalhes em `ARCHITECTURE.md`, "Modo Adicionar vértice e toque".
   - *Commit:* `feat(editor): add vertex creation mode with undo and redo`
 
-- ⬜ **3.7 Modo Conectar** (M). Toque no vértice de origem, prévia da aresta até o dedo (ou até o alvo), toque no destino
-  cria; cancelar (toque no vazio, no mesmo vértice ou botão); erros do domínio como mensagem (`SELF_LOOP`,
-  `DUPLICATE_EDGE`).
-  - *Aceite:* conectar dois vértices cria uma aresta com id estável; arco oposto em grafo orientado é aceito; repetida
-    em não orientado é recusada com a mensagem certa; cancelar não deixa prévia nem estado pendente.
-  - *Testes:* máquina de estados pura do modo (origem pendente, cancelar, trocar de modo no meio); RNTL.
-  - *Commit:* `feat(editor): add connect mode with preview and cancel`
+- ✅ **3.7 Modo Conectar** (M). Três partes, cada uma fechada com `npm run check`. **Só conectar:** sem arrasto, zoom, pan, edição de peso ou rótulo, seleção por toque, exclusão, SQLite
+  nem algoritmos. Dois toques criam a aresta: A → B em grafo orientado, A—B em não orientado (a orientação é do `Graph`; a interface não tem regra de orientação).
+  - *A. Máquina de estados pura* (`core/connect.ts`, `core/connect-status.ts`): `connectStep(origem pendente, alvo do hitTest, grafo) → { connection, action?, outcome }`. Sem origem, tocar em um
+    vértice o escolhe (nenhuma ação, nenhum id, nenhum histórico); com origem, tocar em outro vértice pede `connect(origem, destino)` UMA vez e limpa a origem; tocar na própria origem, em aresta
+    ou no fundo cancela (na própria origem, sem erro de laço); toque inválido não muda nada. `reconcileConnection` descarta a origem fora do modo ou sem o vértice. O `hitTapTarget`
+    (validação e `hitTest` do 3.3) foi extraído de `tapToEditorAction` e é compartilhado. Não altera grafo nem layout, não cria aresta nem valida aresta (`addEdge` do domínio, pelo `applyAction`).
+  - *B. Estado pendente e interface:* a store guarda `connection` (um id) e `connectNotice` ao lado do `EditorState` (fora do histórico, do `Graph`, do layout e do JSON v1), com `connectTap` e
+    `cancelConnection`; `dispatch` e `reset` mantêm a origem coerente (trocar de modo, `reset`, origem removida por desfazer ou refazer). Conectar passou de "em breve" a ativo (desabilitado com
+    menos de 2 vértices: legenda "2+ vértices" e dica acessível). Destaque da origem no SVG: anel tracejado e contorno de 4 dp (forma, não só cor). Linha de estado ABAIXO do canvas
+    ("Origem: A. Toque no vértice de destino.", "Aresta criada de A para B." / "entre A e B.", recusa com o motivo do domínio, "Conexão cancelada."), com o botão Cancelar e região viva.
+  - *C. Canvas:* o MESMO detector do 3.6 (`useTapGesture`, coordenadas locais, `maxDistance` 10 dp, cancelado não age); o modo escolhe o caminho do toque (Conectar → `connectTap`; os outros →
+    `tapToEditorAction`), nunca os dois. A câmera não muda.
+  - *Aceite:* uma conexão concluída é UM passo de histórico; recusa (duplicata, vértice inexistente) não cria passo nem gasta id, limpa a origem e mostra a mensagem em português; desfazer remove a
+    aresta e refazer a devolve com o mesmo id; arco oposto em grafo orientado é aceito (duas curvas, uma seta cada) e B—A em não orientado é recusado; cancelar (próprio vértice, fundo, aresta,
+    Cancelar, troca de modo, novo grafo, exemplo, origem removida) não muda grafo nem histórico; o canvas não se desloca quando a origem é escolhida.
+  - *Prévia:* destaque da origem, instrução textual e cancelar. **Sem linha que acompanhe o dedo** (o detector reconhece toques, não o movimento do ponteiro).
+  - *Android (emulador Pixel_6, Expo Go 58.0.5, `adb input tap` reais, temas escuro e claro):* os 18 itens do roteiro (A—B, desfazer e refazer, duplicata, os três cancelamentos, troca de modo,
+    deslizes rápidos que não escolhem origem, A → B e B → A com as duas curvas, Adicionar vértice, exemplo com origem pendente, tema claro, abas). **Defeito real achado só no aparelho e corrigido:**
+    a legenda "precisa de 2 vértices" do Conectar bloqueado quebrava em duas linhas, e ao sumir (no segundo vértice) a barra de modos encolhia ≈ 13 dp e o canvas subia no mesmo toque (A e B nasceram
+    13 dp acima do dedo); agora a legenda tem uma linha ("2+ vértices") e a barra tem altura mínima fixa. **Não verificado:** TalkBack, iOS, aparelho físico, pinça, arrasto e multitoque (fora do
+    incremento), outras larguras (só Jest), rotação, escala de fonte, toque longo e desempenho.
+  - *Expo Go:* o aviso "Project is incompatible with this version of Expo Go" foi investigado: projeto SDK 58.0.21 e Expo Go 58.0.5 (mesma SDK); `expo install --check` e `expo-doctor` só apontam 7 divergências de
+    patch e minor dentro da SDK 58 (19 de 20 verificações); o aviso não reapareceu em 3 aberturas. **Aviso transitório, causa não identificada**, sem incompatibilidade real; nada foi atualizado.
+  - *Complexidade:* hit-testing Θ(V + E·N); escolher a origem O(1) mais Θ(V) para conferir o vértice; criar a aresta Θ(E) mais o passo de histórico Θ(L); a cena só é refeita (Θ(V + E)) quando o grafo muda,
+    não ao escolher a origem; SVG Θ(V + E) elementos mais um anel. Sem índice espacial.
+  - *Limitações:* sem linha dinâmica; aresta criada sem peso (3.8); Selecionar não seleciona; sem arrasto, zoom nem pan; "Novo grafo" sem confirmação; aviso do último toque some na próxima ação; instrução sem leitor de tela.
+  - *Testes:* 121 novos; total do projeto **2141**. Mutação dirigida: 64 mutações, 63 detectadas (2 só depois de reforçar os testes) e 1 **equivalente**. Detalhes em `ARCHITECTURE.md`, "Modo Conectar".
+  - *Commit:* `feat(editor): add vertex connection mode with source highlight`
 
 - ⬜ **3.8 Modo Selecionar, propriedades e exclusão** (M). Toque seleciona vértice/aresta; toque longo abre a folha de
   propriedades (rótulo do vértice; peso da aresta, com vírgula decimal, "sem peso" ≠ 0); excluir **com confirmação**

@@ -82,9 +82,12 @@ describe('LabScreen: estado inicial', () => {
 
     expect(screen.getByText('Laboratório')).toBeOnTheScreen();
     expect(screen.getByText('Nenhum grafo carregado')).toBeOnTheScreen();
-    expect(screen.getByText(/Comece um grafo vazio e adicione vértices tocando no quadro, ou carregue o exemplo\./)).toBeOnTheScreen();
-    expect(screen.getByText(/Conectar vértices ainda não está disponível\./)).toBeOnTheScreen();
+    expect(screen.getByText(/Comece um grafo vazio, adicione vértices tocando no quadro e conecte-os, ou carregue o exemplo\./)).toBeOnTheScreen();
+    expect(screen.queryByText(/ainda não está disponível/)).toBeNull(); // conectar já existe: nada de "em breve" no texto da tela
+    expect(screen.queryByText(/chega em breve/)).toBeNull();
     expect(screen.getByText('O que ainda vem aqui')).toBeOnTheScreen();
+    expect(screen.getByText(/Selecionar, editar e excluir vértices e arestas\./)).toBeOnTheScreen();
+    expect(screen.queryByText(/Conectar vértices com arestas, tocando na tela/)).toBeNull();
     expect(screen.queryByTestId('canvas-area')).toBeNull();
     expect(screen.queryByTestId('graph-canvas', HIDDEN)).toBeNull();
   });
@@ -158,11 +161,12 @@ describe('LabScreen: novo grafo', () => {
     const hint = within(canvas).getByTestId('canvas-hint');
     expect(within(hint).getByText('Toque no espaço para adicionar o primeiro vértice.')).toBeOnTheScreen();
     expect(hint).toHaveStyle({ position: 'absolute', pointerEvents: 'none' });
-    // nada vem ANTES do quadro no seu bloco: o que some ao criar o vértice não pode deslocá-lo
-    expect(canvas.parent?.children.indexOf(canvas)).toBe(0);
+    // a mensagem NÃO vem antes do quadro (a árvore é percorrida em ordem de desenho): o que some ao criar o vértice não pode deslocá-lo
+    const ordem = () => screen.queryAllByTestId(/^(mode-connect|canvas-hint|canvas-area|history-undo)$/).map((node) => String(node.props.testID));
+    expect(ordem()).toStrictEqual(['mode-connect', 'canvas-area', 'canvas-hint', 'history-undo']);
 
     await addAt(100, 100);
-    expect(screen.getByTestId('canvas-area').parent?.children.indexOf(screen.getByTestId('canvas-area'))).toBe(0);
+    expect(ordem()).toStrictEqual(['mode-connect', 'canvas-area', 'history-undo']);
   });
 
   it('Desfazer e Refazer começam desabilitados', async () => {
