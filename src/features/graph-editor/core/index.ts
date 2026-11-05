@@ -5,7 +5,8 @@
 //   arestas (3.3A) e hit-testing (3.3B) — prontos · 3.4 comandos do editor, histórico e mensagens — pronto (a store Zustand
 //   fica em `graph-editor/editor-store.ts`, fora do núcleo) · 3.5 cena do grafo e enquadramento inicial — pronto (o
 //   renderizador SVG fica em `graph-editor/`) · 3.6 tradução do toque em ação (`tap.ts`) — pronto · 3.7 máquina de estados do
-//   modo Conectar (`connect.ts`, `connect-status.ts`) — pronto.
+//   modo Conectar (`connect.ts`, `connect-status.ts`) — pronto · 3.8 seleção por toque (`selection.ts`), conversão do texto de peso
+//   (`weight-input.ts`), propriedades e exclusão (`properties.ts`, `deletion.ts`) — pronto.
 // Importa apenas o domínio (`@/domain/graph`) e a si mesmo. O ESLint barra o resto e `boundary.test.ts` confere também
 // os imports relativos que saiam desta pasta. A interface (`src/features/graph-editor/*.tsx`) e a futura store
 // Zustand dependem deste núcleo, nunca o contrário.
@@ -77,6 +78,32 @@ export {
   type ConnectTransition,
 } from './connect';
 export { CONNECT_IDLE_MESSAGE, connectStatusMessage, type ConnectNotice } from './connect-status';
+
+// Seleção por toque (3.8): o toque no modo Selecionar vira `select` ou `clear-selection`; o texto de estado da seleção em português
+export { SELECT_IDLE_MESSAGE, selectionStatusMessage, tapToSelectionAction } from './selection';
+
+// Propriedades do elemento selecionado (rascunho, título, ação do Salvar) e exclusão com confirmação (pergunta, contagem, identidade) (3.8)
+export {
+  describeProperties,
+  labelSaveAction,
+  propertiesDraft,
+  propertiesGenitive,
+  propertiesNoun,
+  propertiesTitle,
+  weightSaveAction,
+  type PropertiesTarget,
+  type WeightSave,
+} from './properties';
+export { confirmedDeletionAction, deletionMessage, describeDeletion, type DeletionSummary } from './deletion';
+
+// Conversão do texto do campo de peso: vazio remove o peso, 0 é um peso; gramática explícita (3.8)
+export {
+  formatWeightForInput,
+  parseWeightInput,
+  weightInputMessage,
+  type WeightInputError,
+  type WeightInputResult,
+} from './weight-input';
 
 // Cena: a descrição visual do grafo em dp de tela, pronta para um renderizador, e o enquadramento inicial da câmera
 export {
