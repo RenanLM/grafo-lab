@@ -35,8 +35,18 @@ yarn-error.*
 *.tsbuildinfo
 coverage/
 
+# Editor local
+.vscode/
+
 # Claude Code: configuração local do usuário
 .claude/settings.local.json
+
+# Claude Code: instruções e prompts locais
+CLAUDE*.md
+*Claude*Code*.md
+
+# Instruções locais para agentes de código
+AGENTS.md
 
 # Bibliografia: PDFs com direitos autorais ficam apenas na máquina local
 /*.pdf
