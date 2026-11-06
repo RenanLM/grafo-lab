@@ -12,8 +12,8 @@ type Props = {
   /** Texto curto sob o rótulo (por exemplo, "em breve"). */
   caption?: string;
   accessibilityHint?: string;
-  /** `radio` para um modo dentro de um grupo; `button` (padrão) para uma ação. */
-  accessibilityRole?: 'button' | 'radio';
+  /** `radio` para um modo dentro de um grupo; `tab` para uma aba dentro de uma lista de abas; `button` (padrão) para uma ação. */
+  accessibilityRole?: 'button' | 'radio' | 'tab';
   testID?: string;
 };
 

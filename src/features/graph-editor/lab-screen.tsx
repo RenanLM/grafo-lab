@@ -37,6 +37,7 @@ import { EditorStoreProvider, useEditorStore, useEditorStoreApi } from './editor
 import { buildExampleGraph } from './example-graph';
 import { buildNewGraph } from './new-graph';
 import { PropertiesSheet, type SheetRequest } from './properties-sheet';
+import { ConnectedRepresentationsPanel } from './representations-panel';
 import { useCanvasGestures } from './canvas-gestures';
 import { LiveGraphRenderer } from './vertex-drag';
 
@@ -66,6 +67,10 @@ import { LiveGraphRenderer } from './vertex-drag';
 // - pan e pinça mudam só a câmera; Centralizar e Ajustar ao grafo a mudam por comando explícito (nunca automaticamente depois de uma edição);
 // - redimensionar ou girar: o ponto do mundo que estava sob o centro do quadro antigo fica sob o centro do novo (`cameraForResize`); NÃO reenquadra o grafo.
 // Cada começo de sessão e cada comando avançam a época do armazém, e com isso um gesto atrasado de antes nunca move a câmera de depois.
+//
+// REPRESENTAÇÕES (3.11). Abaixo do canvas e do histórico fica o painel recolhível "Representações do grafo" (`representations-panel.tsx`): o MESMO `graph` da sessão como lista de adjacência, matriz de
+// adjacência, matriz de incidência e lista de incidência. Não é modal (o aluno edita enquanto consulta), começa recolhido e só calcula a aba ativa, só aberto, e só quando o `graph` muda: pan, pinça, arrasto,
+// seleção e troca de modo não o recalculam. O painel assina só `selectGraph` (nunca o `EditorState` inteiro) e não tem estado matemático próprio.
 
 const EMPTY_SESSION: CreateEditorStateOptions = { graph: createGraph({ id: 'laboratorio' }), mode: 'select' };
 
@@ -78,7 +83,6 @@ export function LabScreen() {
 }
 
 const PLANNED = [
-  'Ver o mesmo grafo como lista de adjacência e como matrizes.',
   'Executar BFS e DFS passo a passo, com explicação de cada passo.',
   'Comparar a complexidade de tempo e de espaço dos algoritmos.',
 ] as const;
@@ -287,6 +291,8 @@ export function LabContent() {
               )}
             </View>
             <HistoryBar />
+            {/* O painel das quatro representações vem DEPOIS de tudo o que é fixo do editor: expandir ou recolher nunca desloca o canvas, a câmera nem os botões acima dele. */}
+            <ConnectedRepresentationsPanel />
           </>
         ) : (
           <View style={[styles.empty, { borderColor: colors.border }]}>

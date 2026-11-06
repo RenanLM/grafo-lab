@@ -86,7 +86,8 @@ describe('LabScreen: estado inicial', () => {
     expect(screen.queryByText(/ainda não está disponível/)).toBeNull(); // conectar já existe: nada de "em breve" no texto da tela
     expect(screen.queryByText(/chega em breve/)).toBeNull();
     expect(screen.getByText('O que ainda vem aqui')).toBeOnTheScreen();
-    expect(screen.getByText(/Ver o mesmo grafo como lista de adjacência e como matrizes./)).toBeOnTheScreen();
+    expect(screen.getByText(/Executar BFS e DFS passo a passo/)).toBeOnTheScreen();
+    expect(screen.queryByText(/Ver o mesmo grafo como lista de adjacência/)).toBeNull(); // o painel das representações já existe (3.11): não está mais em "o que ainda vem"
     expect(screen.queryByText(/Ampliar e deslocar o quadro/)).toBeNull(); // pan e pinça já existem (3.10): não estão mais em "o que ainda vem"
     expect(screen.queryByText(/Arrastar vértices/)).toBeNull(); // arrastar vértices já existe (3.9): não está mais em "o que ainda vem"
     expect(screen.queryByText(/Selecionar, editar e excluir vértices e arestas/)).toBeNull(); // já existe: não está mais em "o que ainda vem"

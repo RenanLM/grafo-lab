@@ -130,11 +130,11 @@ estão em `ARCHITECTURE.md`):
 A etapa 3.4B registrou a tabela comparativa e as medições em `ARCHITECTURE.md`; limites de tamanho para a interface
 só depois de medir em Hermes e em Android com poucos recursos (tarefa 4.6).
 
-## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 a 3.10 concluídos; os demais aguardam autorização)
+## Fase 3 — Editor visual de grafos (canvas touch-first) 🔄 (3.0 a 3.11 concluídos; os demais aguardam autorização)
 
 Só os incrementos 3.0 (infraestrutura), 3.1 (câmera pura), 3.2 (`GraphLayout` puro), 3.3 (geometria das arestas e
 hit-testing puros), 3.4 (núcleo de edição, histórico e store Zustand), 3.5 (renderizador SVG somente leitura e exemplo no
-Laboratório), 3.6 (modo Adicionar vértice, toque no canvas e desfazer/refazer) , 3.7 (modo Conectar), 3.8 (seleção, propriedades e exclusão), 3.9 (arrastar vértices) e 3.10 (pan, pinça e enquadramento da câmera) foram feitos; **já é possível construir, editar, reposicionar, ampliar e deslocar grafos completos no canvas, mas ainda não ver as quatro representações**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
+Laboratório), 3.6 (modo Adicionar vértice, toque no canvas e desfazer/refazer) , 3.7 (modo Conectar), 3.8 (seleção, propriedades e exclusão), 3.9 (arrastar vértices), 3.10 (pan, pinça e enquadramento da câmera) e 3.11 (painel das quatro representações) foram feitos; **já é possível construir, editar, reposicionar, ampliar e deslocar grafos completos no canvas e ver o mesmo grafo como lista e matriz de adjacência e de incidência, mas ainda não torná-lo acessível a leitores de tela nem a telas muito pequenas (3.12)**. Cada incremento só começa com autorização, termina com `npm run check`, mutação dirigida
 quando houver regra nova e uma mensagem de commit. Tamanhos: **S** (um módulo puro e seus testes) e **M** (lógica +
 interface). Ordem como no prompt mestre: renderizar, criar, conectar, selecionar; **depois** arrastar, deslocar e
 ampliar, em incrementos separados.
@@ -458,15 +458,16 @@ ampliar, em incrementos separados.
   - *Testes:* 240 novos; total do projeto **2801** (57 suítes). Mutação dirigida: 54 mutações, 50 detectadas de primeira, 3 só depois de reforçar os testes e 1 equivalente. Detalhes em `ARCHITECTURE.md`, "Câmera: pan, pinça e enquadramento".
   - *Commit:* `feat(editor): add pan, pinch and camera framing controls` (sugerido em partes no final do relatório)
 
-- ⬜ **3.11 Painel das quatro representações** (M). Folha inferior com abas (lista de adjacência, matriz de adjacência,
-  matriz de incidência, lista de incidência), **calculadas só enquanto o painel está aberto**, a partir do mesmo
-  `graph`; três estados distintos nas células (sem aresta, aresta sem peso — marcada com "x", como em Boaventura &
-  Jurkiewicz, §2.1, p. 19, e **nunca 1** — e peso, inclusive 0); decisão 7.
-  - *Aceite:* editar o grafo com o painel aberto atualiza as quatro; sem peso, 0 e negativo ficam visíveis e
-    distintos; a incidência mostra +1/−1 (orientado) e 1/1 (não orientado); grafos acima do limite de legibilidade
-    mostram aviso em vez da matriz.
-  - *Testes:* formatação pura (célula → texto), RNTL por aba, "o painel não calcula quando fechado".
-  - *Commit:* `feat(editor): show the four graph representations on demand`
+- ✅ **3.11 Painel das quatro representações** (M). Três partes, cada uma fechada com `npm run check`. Painel recolhível **não modal** "Representações do grafo", abaixo do canvas e do histórico, com abas para lista de adjacência, matriz de adjacência, matriz de incidência e lista de incidência, sobre o **mesmo `graph`** da sessão. **Sem** editor de matriz, edição pelas tabelas, algoritmos, SQLite, dependência de tabelas nem segundo estado matemático; o domínio, o JSON v1, as regras de orientação, o histórico e a política da câmera não mudaram.
+  - *A. Adaptação pura* (`core/representation-view.ts`): `buildRepresentationView(graph, kind, options)` chama SÓ a função da Fase 2 da aba pedida (`adjacencyList`, `adjacencyMatrix`, `incidenceMatrix`, `incidenceList`) e devolve um modelo discriminado por `kind` com textos, legendas e descrições faladas (ids preservados, ordem do domínio, três estados de peso distintos, limite de 400 células conferido ANTES de materializar a matriz); `listLines` e `pageLines` para listas em páginas.
+  - *B. Painel* (`representation-content.tsx`, `representations-panel.tsx`): abas, legendas, tabelas de largura fixa com a coluna dos cabeçalhos das linhas congelada e rolagem horizontal, listas em páginas de 60 linhas com aviso e "Mostrar mais", estados vazios, aviso de matriz grande demais com dimensões e sugestão de lista, tema claro e escuro, descrição falada de cada célula.
+  - *C. Integração* (`lab-screen.tsx`): `ConnectedRepresentationsPanel` assina só `selectGraph`; calcula, com `useMemo`, só a aba ativa e só expandido, dependendo da identidade do `graph`, da aba e do expandido. Pan, pinça, arrasto de vértice, seleção e troca de modo NÃO recalculam; qualquer alteração do grafo recalcula uma vez.
+  - *Aceite:* o exemplo A → B (peso 0), B → A (sem peso), C isolado dá, nas quatro, A→B com peso zero, B→A sem peso, incidência e1 (A +1, B −1) e e2 (B +1, A −1), C zerado; 0, sem peso e ausência são distintos; arcos opostos não se invertem; matriz não orientada simétrica; editar, desfazer, refazer, carregar o exemplo e começar outro grafo atualizam a aba aberta.
+  - *Android (emulador Pixel_6, Expo Go 58.0.5; um dedo por `adb`, dois dedos reais por `adb root` + `sendevent`; temas claro e escuro):* o roteiro de 25 itens foi percorrido (painel recolhido por padrão e sem deslocar o canvas, as quatro abas sem arestas e com A—B, peso 0 pela folha de propriedades, orientado com arcos opostos, exclusão, desfazer e refazer, rótulo, mover vértice, pan, pinça real e Centralizar/Ajustar sem recálculo, rolagem horizontal da matriz de incidência 6 × 7, limite de 21 vértices contra 20, temas e abas do app). Recálculos medidos no aparelho por um `console.log` temporário: expandir 1; conectar 1; salvar rótulo 1; excluir 1; desfazer e refazer 1 cada; pan, pinça, arrasto, seleção, Centralizar e Ajustar 0. **Dois defeitos de uso achados só no aparelho e corrigidos:** os cabeçalhos das linhas sumiam ao rolar a matriz (a coluna agora é congelada) e a nota longa empurrava a tabela para baixo da dobra. **Não verificado:** TalkBack, iOS, aparelho físico, rotação, escala de fonte a 200 % e largura de 320 dp (3.12).
+  - *Complexidade:* lista de adjacência Θ(V + E); matriz de adjacência Θ(V²); matriz de incidência Θ(V·E); lista de incidência Θ(V + E); o adaptador soma o mesmo formato em texto (fator 2 a 10 sobre o domínio). Medido no Node: V = 200 e E = 568, matriz de adjacência 2,8 ms; V = 1000 (estrela), listas 0,8 e 1,4 ms; acima de 400 células a matriz custa ≈ 0,001 ms (nem é montada). Hermes: 0,3 ms para o modelo da matriz de 20 × 20; o desenho das células domina.
+  - *Limitações:* sem TalkBack real; em telas pequenas o aluno rola entre o canvas e o painel; matrizes acima de 400 células não são exibidas (limite só visual); listas em páginas de 60 linhas; rótulos longos cortados com reticências na tela; sem edição nem exportação pelas tabelas; a aba lembrada vale só enquanto a tela existe.
+  - *Testes:* 131 novos; total do projeto **2932** (61 suítes). Mutação dirigida: 44 mutações, 43 detectadas de primeira, 1 só depois de reforçar o teste e nenhuma equivalente. Detalhes em `ARCHITECTURE.md`, "Painel das quatro representações".
+  - *Commit:* `feat(editor): add graph representations panel` (sugerido em partes no final do relatório)
 
 - ⬜ **3.12 Acessibilidade e telas pequenas** (M). Resumo do canvas e **camada acessível** (quando um leitor de tela está
   ativo): cada vértice e aresta vira elemento focável com rótulo ("Vértice A, grau 3") e ações (selecionar, conectar a…,

@@ -8,7 +8,8 @@
 //   modo Conectar (`connect.ts`, `connect-status.ts`) — pronto · 3.8 seleção por toque (`selection.ts`), conversão do texto de peso
 //   (`weight-input.ts`), propriedades e exclusão (`properties.ts`, `deletion.ts`) — pronto · 3.9 arrasto de vértice (`drag.ts`) e a
 //   prévia do arrasto (`drag-preview.ts`) — pronto · 3.10 contas de pan, pinça e enquadramento (`camera-gesture.ts`) e a decisão de
-//   quem é o dono do deslize (`gesture-start.ts`) — pronto (a câmera viva fica em `graph-editor/camera-store.ts`, fora do núcleo).
+//   quem é o dono do deslize (`gesture-start.ts`) — pronto (a câmera viva fica em `graph-editor/camera-store.ts`, fora do núcleo) · 3.11 adaptador de apresentação das quatro
+//   representações da Fase 2 (`representation-view.ts`) — pronto (o painel fica em `graph-editor/`).
 // Importa apenas o domínio (`@/domain/graph`) e a si mesmo. O ESLint barra o resto e `boundary.test.ts` confere também
 // os imports relativos que saiam desta pasta. A interface (`src/features/graph-editor/*.tsx`) e a futura store
 // Zustand dependem deste núcleo, nunca o contrário.
@@ -199,3 +200,42 @@ export {
   type HitTestOptions,
   type VertexHit,
 } from './geometry';
+
+// Representações do grafo (3.11): o modelo de APRESENTAÇÃO das quatro representações do domínio (textos, legendas, descrições acessíveis e limites de legibilidade)
+export {
+  ABSENT_SYMBOL,
+  NO_INCIDENT_EDGES_TEXT,
+  NO_NEIGHBORS_TEXT,
+  NO_WEIGHT_TEXT,
+  REPRESENTATION_KINDS,
+  REPRESENTATION_LIMITS,
+  REPRESENTATION_TITLES,
+  UNWEIGHTED_SYMBOL,
+  buildRepresentationView,
+  listLines,
+  nextVisibleLines,
+  pageLines,
+  spokenWeight,
+  weightText,
+  type AdjacencyCellView,
+  type AdjacencyListEntryView,
+  type AdjacencyListRowView,
+  type AdjacencyListView,
+  type AdjacencyMatrixRowView,
+  type AdjacencyMatrixView,
+  type EdgeRef,
+  type IncidenceCellView,
+  type IncidenceListEntryView,
+  type IncidenceListRowView,
+  type IncidenceListView,
+  type IncidenceMatrixRowView,
+  type IncidenceMatrixView,
+  type LegendEntry,
+  type ListLine,
+  type MatrixSize,
+  type RepresentationKind,
+  type RepresentationView,
+  type RepresentationViewOptions,
+  type TooLargeMatrix,
+  type VertexRef,
+} from './representation-view';
